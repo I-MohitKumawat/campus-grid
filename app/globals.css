@@ -1,0 +1,31 @@
+/*
+ * app/globals.css
+ *
+ * Global CSS reset and CSS custom properties.
+ * Component-level styles should live in component files or Tailwind utilities.
+ */
+
+@import "tailwindcss";
+
+:root {
+  --font-inter: "Inter", system-ui, sans-serif;
+  --color-brand:  #0F172A;
+  --color-accent: #4F46E5;
+  --color-green:  #059669;
+  --color-yellow: #D97706;
+  --color-red:    #DC2626;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: var(--font-inter);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}

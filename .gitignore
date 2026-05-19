@@ -1,0 +1,81 @@
+# See https://help.github.com/articles/ignoring-files/ for more information.
+
+# ── Dependencies ──────────────────────────────────────────────────────────────
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# ── Next.js build output ──────────────────────────────────────────────────────
+/.next/
+/out/
+/build
+
+# ── Environment variables (NEVER commit these) ────────────────────────────────
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+# .env.example is safe to commit (it contains no secrets)
+
+# ── Testing ───────────────────────────────────────────────────────────────────
+/coverage
+*.lcov
+
+# ── Database ──────────────────────────────────────────────────────────────────
+*.sql.bak
+/db-snapshots/
+
+# ── TypeScript ────────────────────────────────────────────────────────────────
+*.tsbuildinfo
+next-env.d.ts
+
+# ── Logging / Debug ───────────────────────────────────────────────────────────
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+*.log
+
+# ── OS-generated files ────────────────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# ── Editor / IDE ──────────────────────────────────────────────────────────────
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.swp
+*.swo
+*~
+
+# ── Certificates / Keys ───────────────────────────────────────────────────────
+*.pem
+*.key
+*.crt
+*.p12
+
+# ── Vercel ────────────────────────────────────────────────────────────────────
+.vercel
+
+# ── Turbopack ─────────────────────────────────────────────────────────────────
+.turbo
+
+# ── BullMQ / Redis dumps ──────────────────────────────────────────────────────
+/redis-dump.rdb
+
+# ── Cloudinary / uploaded assets ─────────────────────────────────────────────
+/uploads/
+/public/uploads/
