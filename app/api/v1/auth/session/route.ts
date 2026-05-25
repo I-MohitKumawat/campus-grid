@@ -2,8 +2,8 @@
  * app/api/v1/auth/session/route.ts
  *
  * POST /api/v1/auth/session
- *   Exchange a Clerk session token for a platform JWT stored in an HTTP-only cookie.
- *   This is called by the frontend immediately after Clerk signs the user in.
+ *   Exchange a Firebase ID token for a platform JWT stored in an HTTP-only cookie.
+ *   This is called by the frontend immediately after Firebase signs the user in.
  *
  * DELETE /api/v1/auth/session
  *   Invalidate the session by clearing the cg_token cookie.
@@ -13,22 +13,23 @@ import type { NextRequest } from 'next/server';
 import { withValidation } from '@/lib/middleware/with-validation';
 import { withAuth } from '@/lib/middleware/with-auth';
 import { SessionCreateSchema } from '@/lib/schemas/auth.schemas';
-import { verifyClerkTokenAndUpsertUser } from '@/lib/services/auth.service';
+import { verifyFirebaseTokenAndUpsertUser } from '@/lib/services/auth.service';
 import { signToken, buildSessionCookie, clearSessionCookie } from '@/lib/jwt';
 import { successResponse, errorResponse } from '@/lib/response';
-import { AppError } from '@/lib/errors';
+import { AppError, NotFoundError } from '@/lib/errors';
+import { query } from '@/lib/db/client';
 
 // POST — create session
 export const POST = withValidation(
   SessionCreateSchema,
   async (_req, _ctx, body) => {
     try {
-      const platformUser = await verifyClerkTokenAndUpsertUser(body.clerk_token);
+      const platformUser = await verifyFirebaseTokenAndUpsertUser(body.id_token);
 
       const token = signToken({
         sub: platformUser.id,
         role: platformUser.role,
-        clerk_id: platformUser.clerk_user_id,
+        firebase_uid: platformUser.firebase_uid,
       });
 
       const cookie = buildSessionCookie(token);
@@ -65,6 +66,41 @@ export const POST = withValidation(
     }
   }
 );
+
+// GET — fetch active session user details
+export const GET = withAuth(async (_req, _ctx, user) => {
+  try {
+    const result = await query(
+      `SELECT id, email, username, role, is_onboarded, onboarding_step, xp, campus_score, avatar_url
+       FROM users
+       WHERE id = $1 AND deleted_at IS NULL`,
+      [user.sub]
+    );
+
+    if (!result.rowCount || result.rowCount === 0) {
+      throw new NotFoundError('User not found.');
+    }
+
+    return new Response(
+      JSON.stringify({
+        success: true,
+        data: result.rows[0],
+      }),
+      {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+  } catch (err) {
+    if (err instanceof AppError) {
+      return errorResponse(err.message, err.statusCode, err.code);
+    }
+    console.error('[GET /auth/session]', err);
+    return errorResponse('Failed to retrieve session.', 500, 'INTERNAL_ERROR');
+  }
+});
 
 // DELETE — invalidate session
 export const DELETE = withAuth(async (_req, _ctx, _user) => {

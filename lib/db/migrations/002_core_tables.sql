@@ -27,7 +27,7 @@ CREATE TABLE users (
   campus_score       INT NOT NULL DEFAULT 0,
   github_id          TEXT UNIQUE,
   linkedin_id        TEXT UNIQUE,
-  clerk_user_id      TEXT UNIQUE NOT NULL,
+  firebase_uid       TEXT UNIQUE NOT NULL,
   avatar_url         TEXT,
   profile_visibility TEXT NOT NULL DEFAULT 'public'
                        CHECK (profile_visibility IN ('public','private')),

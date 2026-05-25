@@ -2,19 +2,35 @@
  * app/globals.css
  *
  * Global CSS reset and CSS custom properties.
- * Component-level styles should live in component files or Tailwind utilities.
  */
 
 @import "tailwindcss";
 
-:root {
-  --font-inter: "Inter", system-ui, sans-serif;
-  --color-brand:  #0F172A;
+@theme {
+  --color-brand: #0F172A;
   --color-accent: #4F46E5;
-  --color-green:  #059669;
+  --color-green: #059669;
   --color-yellow: #D97706;
-  --color-red:    #DC2626;
+  --color-red: #DC2626;
+
+  --font-sans: "Inter", system-ui, -apple-system, sans-serif;
+  --font-display: "Outfit", system-ui, -apple-system, sans-serif;
+
+  --animate-fadeIn: fadeIn 0.4s ease-out forwards;
+
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
 }
+
+@custom-variant dark (&:where(.dark, .dark *));
 
 *, *::before, *::after {
   box-sizing: border-box;
@@ -25,7 +41,7 @@ html {
 }
 
 body {
-  font-family: var(--font-inter);
+  font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }

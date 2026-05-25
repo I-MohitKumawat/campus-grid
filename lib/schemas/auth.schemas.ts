@@ -9,8 +9,8 @@ import { z } from 'zod';
 
 // ── POST /api/v1/auth/session ─────────────────────────────────────────────────
 export const SessionCreateSchema = z.object({
-  /** Clerk session token from the frontend's getToken() call */
-  clerk_token: z.string().min(1, 'Clerk session token is required.'),
+  /** Firebase ID token from the frontend's getIdToken() call */
+  id_token: z.string().min(1, 'Firebase ID token is required.'),
 });
 export type SessionCreateInput = z.infer<typeof SessionCreateSchema>;
 

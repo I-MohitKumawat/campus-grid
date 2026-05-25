@@ -15,7 +15,7 @@
  *   // Multiple roles
  *   export const PATCH = withAuth(handler, ['club_lead', 'faculty', 'admin']);
  *
- * The `user` argument is the verified JwtPayload: { sub, role, clerk_id }.
+ * The `user` argument is the verified JwtPayload: { sub, role, firebase_uid }.
  * No database call is made inside this middleware — the role comes from the JWT.
  * Score-threshold checks (e.g. marketplace XP gate) are done inside handlers.
  */

@@ -1,0 +1,1 @@
+an event with team based goal. the team consists of members not from the same year. from 1st to 3rd year to form the team

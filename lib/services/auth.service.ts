@@ -4,21 +4,21 @@
  * Authentication service layer.
  *
  * Responsibilities:
- *   - Verify Clerk session tokens using Clerk's backend SDK
+ *   - Verify Firebase ID tokens
  *   - Look up or create a user row in PostgreSQL on first sign-in
  *   - Complete the onboarding wizard step
  *   - All DB interactions for the auth domain live here — route handlers
  *     remain thin and only call service functions
  *
  * Design:
- *   - Clerk is the authority for identity; our DB is the authority for
+ *   - Firebase is the authority for identity; our DB is the authority for
  *     profile data, XP, score, and role.
  *   - On the first sign-in, a new row is inserted into `users` and `profiles`.
  *   - The service returns a plain object (never a DB row) so callers are
  *     decoupled from schema changes.
  */
 
-import { clerkClient, verifyToken } from '@clerk/nextjs/server';
+import { verifyFirebaseIdToken } from '@/lib/firebase';
 import { query, withTransaction } from '@/lib/db/client';
 import {
   ConflictError,
@@ -37,7 +37,7 @@ export interface PlatformUser {
   username: string;
   profile_slug: string;
   role: string;
-  clerk_user_id: string;
+  firebase_uid: string;
   avatar_url: string | null;
   is_onboarded: boolean;
   onboarding_step: number;
@@ -82,41 +82,38 @@ async function ensureUniqueUsername(base: string): Promise<string> {
 // ── Service functions ─────────────────────────────────────────────────────────
 
 /**
- * Verify a Clerk session token, then look up or create the platform user.
+ * Verify a Firebase ID token, then look up or create the platform user.
  *
  * Flow:
- *   1. Verify token with Clerk SDK → get clerkUser
+ *   1. Verify token with Firebase → get firebaseUid
  *   2. Check email domain against allowed list (from DB config)
- *   3. SELECT user by clerk_user_id
+ *   3. SELECT user by firebase_uid
  *   4. If not found, INSERT users + profiles in one transaction
  *   5. Update last_login_at
  *   6. Return PlatformUser
  */
-export async function verifyClerkTokenAndUpsertUser(
-  clerkToken: string
+export async function verifyFirebaseTokenAndUpsertUser(
+  firebaseIdToken: string
 ): Promise<PlatformUser> {
-  // 1. Verify the token with Clerk
-  let clerkId: string;
-  let clerkEmail: string;
-  let clerkAvatar: string | null;
+  // 1. Verify the token with Firebase
+  let firebaseUid: string;
+  let firebaseEmail: string;
+  let firebaseAvatar: string | null;
 
   try {
-    const client = await clerkClient();
-    // verifyToken validates the JWT and returns the session
-    const session = await verifyToken(clerkToken, { secretKey: process.env.CLERK_SECRET_KEY });
-    clerkId = session.sub; // Clerk user ID is in sub
-    // Fetch the full user to get email
-    const user = await client.users.getUser(clerkId);
-    clerkEmail =
-      user.emailAddresses.find((e) => e.id === user.primaryEmailAddressId)
-        ?.emailAddress ?? '';
-    clerkAvatar = user.imageUrl ?? null;
-  } catch {
-    throw new UnauthorizedError('Clerk token verification failed.');
+    const decoded = await verifyFirebaseIdToken(firebaseIdToken);
+    firebaseUid = decoded.uid;
+    firebaseEmail = decoded.email ?? '';
+    firebaseAvatar = decoded.picture ?? null;
+  } catch (err) {
+    if (err instanceof UnauthorizedError) {
+      throw err;
+    }
+    throw new UnauthorizedError('Firebase token verification failed.');
   }
 
-  if (!clerkEmail) {
-    throw new UnauthorizedError('Could not retrieve email from Clerk session.');
+  if (!firebaseEmail) {
+    throw new UnauthorizedError('Could not retrieve email from Firebase session.');
   }
 
   // 2. Domain check — load allowed domains from platform_config
@@ -127,7 +124,7 @@ export async function verifyClerkTokenAndUpsertUser(
     : JSON.parse(String(allowedDomainsRaw ?? '[]'));
 
   if (allowedDomains.length > 0) {
-    const emailDomain = clerkEmail.split('@')[1];
+    const emailDomain = firebaseEmail.split('@')[1];
     if (!allowedDomains.includes(emailDomain)) {
       throw new ForbiddenError(
         `Sign-ups are restricted to: ${allowedDomains.join(', ')}.`
@@ -137,11 +134,11 @@ export async function verifyClerkTokenAndUpsertUser(
 
   // 3. Look up existing user
   const existingResult = await query<PlatformUser>(
-    `SELECT id, email, username, profile_slug, role, clerk_user_id,
+    `SELECT id, email, username, profile_slug, role, firebase_uid,
             avatar_url, is_onboarded, onboarding_step, xp, campus_score
      FROM users
-     WHERE clerk_user_id = $1 AND deleted_at IS NULL`,
-    [clerkId]
+     WHERE firebase_uid = $1 AND deleted_at IS NULL`,
+    [firebaseUid]
   );
 
   if (existingResult.rowCount && existingResult.rowCount > 0) {
@@ -154,18 +151,18 @@ export async function verifyClerkTokenAndUpsertUser(
   }
 
   // 4. First sign-in — create user + profile atomically
-  const baseSlug = slugify(clerkEmail);
+  const baseSlug = slugify(firebaseEmail);
   const username = await ensureUniqueUsername(baseSlug);
 
   const newUser = await withTransaction(async (client) => {
     const userRow = await client.query<PlatformUser>(
       `INSERT INTO users
-         (email, username, profile_slug, role, clerk_user_id, avatar_url,
+         (email, username, profile_slug, role, firebase_uid, avatar_url,
           email_verified, last_login_at)
        VALUES ($1, $2, $2, 'student', $3, $4, TRUE, now())
-       RETURNING id, email, username, profile_slug, role, clerk_user_id,
+       RETURNING id, email, username, profile_slug, role, firebase_uid,
                  avatar_url, is_onboarded, onboarding_step, xp, campus_score`,
-      [clerkEmail, username, clerkId, clerkAvatar]
+      [firebaseEmail, username, firebaseUid, firebaseAvatar]
     );
 
     const user = userRow.rows[0];
@@ -174,7 +171,7 @@ export async function verifyClerkTokenAndUpsertUser(
     await client.query(
       `INSERT INTO profiles (user_id, full_name)
        VALUES ($1, $2)`,
-      [user.id, clerkEmail.split('@')[0]] // temp name until onboarding
+      [user.id, firebaseEmail.split('@')[0]] // temp name until onboarding
     );
 
     return user;

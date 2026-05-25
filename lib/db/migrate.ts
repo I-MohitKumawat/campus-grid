@@ -25,8 +25,12 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as dotenv from 'dotenv';
 
-// Load env from .env.local in development
-dotenv.config({ path: path.resolve(process.cwd(), '.env.local') });
+// Load env from .env.local in development, fallback to .env
+if (fs.existsSync(path.resolve(process.cwd(), '.env.local'))) {
+  dotenv.config({ path: path.resolve(process.cwd(), '.env.local') });
+} else {
+  dotenv.config({ path: path.resolve(process.cwd(), '.env') });
+}
 
 if (!process.env.DATABASE_URL) {
   console.error('[migrate] DATABASE_URL is not set.');

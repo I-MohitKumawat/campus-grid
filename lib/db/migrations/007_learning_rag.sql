@@ -6,8 +6,8 @@
 -- NOTE: Requires pgvector extension to be enabled on your Neon DB instance.
 -- ─────────────────────────────────────────────────────────────────────────────
 
--- Enable pgvector (must be done once per DB by a superuser)
-CREATE EXTENSION IF NOT EXISTS vector;
+-- Enable pgvector if available, otherwise fallback to real[]
+-- CREATE EXTENSION IF NOT EXISTS vector;
 
 -- ── learning_paths ────────────────────────────────────────────────────────────
 CREATE TABLE learning_paths (
@@ -95,13 +95,13 @@ CREATE TABLE rag_resources (
   url        TEXT NOT NULL,
   domain     TEXT NOT NULL,
   content    TEXT,
-  embedding  vector(1536),
+  embedding  real[],
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
-CREATE INDEX idx_rag_embedding
-  ON rag_resources USING ivfflat (embedding vector_cosine_ops)
-  WITH (lists = 100);
+-- CREATE INDEX idx_rag_embedding
+--   ON rag_resources USING ivfflat (embedding vector_cosine_ops)
+--   WITH (lists = 100);
 
 -- ── platform_config ───────────────────────────────────────────────────────────
 -- Admin-managed key-value config. No code deploy needed for config changes.

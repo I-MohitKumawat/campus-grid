@@ -7,7 +7,7 @@
 import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
-  // Allow Cloudinary and Clerk avatar CDNs as image sources
+  // Allow Cloudinary, Google and Firebase avatar CDNs as image sources
   images: {
     remotePatterns: [
       {
@@ -16,7 +16,11 @@ const nextConfig: NextConfig = {
       },
       {
         protocol: 'https',
-        hostname: 'img.clerk.com',
+        hostname: 'lh3.googleusercontent.com',
+      },
+      {
+        protocol: 'https',
+        hostname: 'firebasestorage.googleapis.com',
       },
     ],
   },

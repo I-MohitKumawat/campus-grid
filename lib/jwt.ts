@@ -4,15 +4,15 @@
  * Backend JWT utilities for signing and verifying the platform session token.
  *
  * The platform issues its own HS256 JWT (stored in an HTTP-only cookie named
- * `cg_token`) after validating a Clerk session token on POST /api/v1/auth/session.
+ * `cg_token`) after validating a Firebase ID token on POST /api/v1/auth/session.
  * This decouples the frontend auth provider from the backend API — any future
  * auth provider swap only requires changing the /auth/session handler.
  *
  * JWT Payload:
- *   sub:      user.id          — platform UUID (not Clerk ID)
- *   role:     user.role        — user_role enum value
- *   clerk_id: string           — Clerk user ID for reference
- *   iat / exp                  — issued-at / expiry (7 days)
+ *   sub:          user.id          — platform UUID (not Firebase UID)
+ *   role:         user.role        — user_role enum value
+ *   firebase_uid: string           — Firebase User ID for reference
+ *   iat / exp                      — issued-at / expiry (7 days)
  *
  * No tier field — access is role-based only.
  */
@@ -29,9 +29,9 @@ if (!SECRET) {
 }
 
 export interface JwtPayload {
-  sub: string;       // platform user UUID
-  role: string;      // user_role
-  clerk_id: string;  // Clerk user ID
+  sub: string;          // platform user UUID
+  role: string;         // user_role
+  firebase_uid: string; // Firebase User ID
   iat: number;
   exp: number;
 }

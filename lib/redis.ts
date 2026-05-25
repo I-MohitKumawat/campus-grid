@@ -42,11 +42,12 @@ redis.on('error', (err) => {
  * Returns null on cache miss or parse failure.
  */
 export async function getJson<T>(key: string): Promise<T | null> {
-  const raw = await redis.get(key);
-  if (!raw) return null;
   try {
+    const raw = await redis.get(key);
+    if (!raw) return null;
     return JSON.parse(raw) as T;
-  } catch {
+  } catch (err) {
+    console.warn(`[Redis] Failed to get key ${key}:`, err instanceof Error ? err.message : err);
     return null;
   }
 }
@@ -59,11 +60,15 @@ export async function setJson(
   value: unknown,
   ttlSeconds?: number
 ): Promise<void> {
-  const serialised = JSON.stringify(value);
-  if (ttlSeconds) {
-    await redis.setex(key, ttlSeconds, serialised);
-  } else {
-    await redis.set(key, serialised);
+  try {
+    const serialised = JSON.stringify(value);
+    if (ttlSeconds) {
+      await redis.setex(key, ttlSeconds, serialised);
+    } else {
+      await redis.set(key, serialised);
+    }
+  } catch (err) {
+    console.warn(`[Redis] Failed to set key ${key}:`, err instanceof Error ? err.message : err);
   }
 }
 
@@ -76,7 +81,13 @@ export async function setJson(
  */
 export async function getConfig(key: string): Promise<unknown> {
   const cacheKey = `config:${key}`;
-  const cached = await redis.get(cacheKey);
+  let cached: string | null = null;
+  try {
+    cached = await redis.get(cacheKey);
+  } catch (err) {
+    console.warn(`[Redis] Failed to read cached config for key ${key}:`, err instanceof Error ? err.message : err);
+  }
+
   if (cached) {
     try { return JSON.parse(cached); } catch { /* fall through */ }
   }
@@ -88,7 +99,11 @@ export async function getConfig(key: string): Promise<unknown> {
   );
   const value = result.rows[0]?.value ?? null;
   if (value !== null) {
-    await redis.setex(cacheKey, 300, JSON.stringify(value));
+    try {
+      await redis.setex(cacheKey, 300, JSON.stringify(value));
+    } catch (err) {
+      console.warn(`[Redis] Failed to cache config for key ${key}:`, err instanceof Error ? err.message : err);
+    }
   }
   return value;
 }
