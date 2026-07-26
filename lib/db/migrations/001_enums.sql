@@ -32,7 +32,7 @@ CREATE TYPE event_visibility AS ENUM
   ('public','internal');
 
 CREATE TYPE reg_status AS ENUM
-  ('registered','attended','waitlisted','cancelled');
+  ('registered','pending','attended','waitlisted','rejected','cancelled');
 
 CREATE TYPE certificate_type AS ENUM
   ('participation','winner','runner_up','organiser','speaker','mentor');

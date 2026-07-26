@@ -9,8 +9,10 @@
 import type { NextRequest } from 'next/server';
 import { withAuth } from '@/lib/middleware/with-auth';
 import { EventUpdateSchema } from '@/lib/schemas/event.schemas';
+import { extractToken, verifyToken } from '@/lib/jwt';
 import {
   getEventById,
+  getRelatedEvents,
   updateEvent,
   adminDeleteEvent,
 } from '@/lib/services/event.service';
@@ -19,15 +21,31 @@ import { AppError } from '@/lib/errors';
 
 type Params = { id: string };
 
-// GET — public
+// GET — public or authenticated
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<Params> }
 ) {
   const { id } = await params;
   try {
-    const event = await getEventById(id);
-    return successResponse(event);
+    const token = extractToken(req);
+    let userId: string | null = null;
+    if (token) {
+      try {
+        const decoded = verifyToken(token);
+        userId = decoded.sub;
+      } catch {
+        // Token optional for GET details
+      }
+    }
+
+    const event = await getEventById(id, userId);
+    const related = await getRelatedEvents(id, event.event_type, event.club_id);
+
+    return successResponse({
+      ...event,
+      related_events: related,
+    });
   } catch (err) {
     if (err instanceof AppError) return errorResponse(err.message, err.statusCode, err.code);
     console.error('[GET /events/:id]', err);

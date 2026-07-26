@@ -116,8 +116,8 @@ export async function listPastEvents(limit = 20, page = 1) {
   return { events: result.rows, total, page, limit };
 }
 
-/** Single event detail (public). */
-export async function getEventById(eventId: string) {
+/** Single event detail (public / authenticated). */
+export async function getEventById(eventId: string, currentUserId?: string | null) {
   const result = await query(
     `SELECT e.*, c.name as club_name, c.slug as club_slug, c.logo_url as club_logo_url,
             p.full_name as organiser_full_name, u.username as organiser_username
@@ -129,7 +129,106 @@ export async function getEventById(eventId: string) {
     [eventId]
   );
   if (!result.rowCount || result.rowCount === 0) throw new NotFoundError('Event');
-  return result.rows[0];
+
+  const event = result.rows[0];
+
+  // 1. Fetch active attendee count directly from registrations
+  const regCountResult = await query(
+    `SELECT COUNT(*) FROM event_registrations WHERE event_id = $1 AND status != 'cancelled'`,
+    [eventId]
+  );
+  const activeRegistrationsCount = parseInt(regCountResult.rows[0].count, 10);
+
+  const capacity = event.capacity ? Number(event.capacity) : null;
+  const remaining_seats = capacity !== null ? Math.max(0, capacity - activeRegistrationsCount) : null;
+  const is_full = capacity !== null && activeRegistrationsCount >= capacity;
+
+  const now = new Date();
+  const eventDate = new Date(event.event_date);
+  const duration = event.duration_minutes ? Number(event.duration_minutes) : 120;
+  const eventEndDate = new Date(eventDate.getTime() + duration * 60000);
+  const registrationDeadline = event.registration_deadline ? new Date(event.registration_deadline) : eventDate;
+
+  const is_past_deadline = now > registrationDeadline;
+  const is_ended = event.status === 'completed' || now > eventEndDate;
+  const is_registration_open = event.status === 'published' && !is_past_deadline && !is_ended;
+
+  // 2. Registration mode ('approval' vs 'instant')
+  const registration_mode = (event.visibility === 'internal' || event.domain_tags?.includes('approval')) ? 'approval' : 'instant';
+
+  // 3. User specific registration lookup
+  let user_registration: Record<string, unknown> | null = null;
+  if (currentUserId) {
+    const userRegResult = await query(
+      `SELECT id, status, attendance_mode, qr_token, checked_in_at, registered_at
+       FROM event_registrations
+       WHERE event_id = $1 AND user_id = $2 AND status != 'cancelled'`,
+      [eventId, currentUserId]
+    );
+    if (userRegResult.rowCount && userRegResult.rowCount > 0) {
+      user_registration = userRegResult.rows[0];
+    }
+  }
+
+  // 4. Compute button state
+  let button_state = 'REGISTER';
+
+  if (event.status === 'cancelled') {
+    button_state = 'CANCELLED';
+  } else if (is_ended) {
+    button_state = 'EVENT_ENDED';
+  } else if (user_registration) {
+    const regStatus = user_registration.status as string;
+    if (regStatus === 'attended') {
+      button_state = 'ATTENDED';
+    } else if (regStatus === 'registered') {
+      button_state = 'REGISTERED';
+    } else if (regStatus === 'waitlisted') {
+      button_state = 'WAITLISTED';
+    } else if (regStatus === 'pending') {
+      button_state = 'PENDING_APPROVAL';
+    }
+  } else if (is_past_deadline) {
+    button_state = 'REGISTRATION_CLOSED';
+  } else if (is_full) {
+    button_state = 'EVENT_FULL';
+  } else if (registration_mode === 'approval') {
+    button_state = 'APPLY';
+  } else {
+    button_state = 'REGISTER';
+  }
+
+  return {
+    ...event,
+    attendee_count: activeRegistrationsCount,
+    remaining_seats,
+    is_full,
+    is_registration_open,
+    is_past_deadline,
+    is_ended,
+    registration_mode,
+    button_state,
+    user_registration,
+  };
+}
+
+/** Get 3 related/similar events for an event detail view. */
+export async function getRelatedEvents(eventId: string, eventType: string, clubId?: string | null, limit = 3) {
+  const result = await query(
+    `SELECT e.id, e.title, e.description, e.banner_url, e.event_type,
+            e.event_date, e.venue, e.online_link, e.capacity, e.attendee_count,
+            c.name as club_name, c.slug as club_slug, c.logo_url as club_logo_url
+     FROM events e
+     LEFT JOIN clubs c ON c.id = e.club_id
+     WHERE e.id != $1
+       AND e.status = 'published'
+       AND e.deleted_at IS NULL
+       AND (e.event_type = $2 OR e.club_id = $3)
+     ORDER BY e.event_date ASC
+     LIMIT $4`,
+    [eventId, eventType, clubId ?? null, limit]
+  );
+  return result.rows;
 }
 
 // ── Create ────────────────────────────────────────────────────────────────────
@@ -176,8 +275,8 @@ export async function createEvent(
        (title, description, banner_url, organiser_id, organiser_type, club_id,
         event_type, visibility, target_years, target_departments, event_date,
         duration_minutes, venue, online_link, capacity, registration_deadline,
-        domain_tags, certificates_enabled, check_in_enabled, speaker_info, status)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,'draft')
+        registration_mode, domain_tags, certificates_enabled, check_in_enabled, speaker_info, status)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,'draft')
      RETURNING *`,
     [
       data.title,
@@ -196,6 +295,7 @@ export async function createEvent(
       data.online_link ?? null,
       data.capacity ?? null,
       data.registration_deadline ?? null,
+      data.registration_mode ?? 'instant',
       data.domain_tags ?? null,
       data.certificates_enabled,
       data.check_in_enabled,
@@ -221,12 +321,9 @@ export async function updateEvent(
     throw new ForbiddenError('Only the organiser or an admin can update this event.');
   }
 
-  // Cannot update a published/completed/cancelled event (unless admin)
-  if (
-    callerRole !== 'admin' &&
-    ['published', 'completed', 'cancelled'].includes(event.status)
-  ) {
-    throw new ValidationError('Published or completed events cannot be edited.');
+  // Cannot update a completed/cancelled event
+  if (['completed', 'cancelled'].includes(event.status)) {
+    throw new ValidationError('Completed or cancelled events cannot be edited.');
   }
 
   const updates: string[] = [];
@@ -240,9 +337,13 @@ export async function updateEvent(
     'certificates_enabled', 'check_in_enabled', 'speaker_info',
   ] as const;
 
+  let isMajorChange = false;
   for (const key of allowed) {
     const val = (data as Record<string, unknown>)[key];
     if (val !== undefined) {
+      if (['venue', 'event_date', 'registration_deadline'].includes(key)) {
+        isMajorChange = true;
+      }
       updates.push(`${key} = $${idx++}`);
       values.push(typeof val === 'object' && val !== null ? JSON.stringify(val) : val);
     }
@@ -255,6 +356,17 @@ export async function updateEvent(
     `UPDATE events SET ${updates.join(', ')} WHERE id = $${idx} RETURNING *`,
     values
   );
+
+  // If published event has major changes (venue, date, deadline), notify registered students
+  if (event.status === 'published' && isMajorChange) {
+    await broadcastAnnouncement(
+      eventId,
+      callerId,
+      'Important Schedule Update',
+      `The event details (venue/date/deadline) for "${event.title}" have been updated by the organizer.`
+    );
+  }
+
   return result.rows[0];
 }
 
@@ -423,18 +535,36 @@ export async function registerForEvent(
   }
 
   // Check deadline
-  if (event.registration_deadline) {
-    const deadline = new Date(event.registration_deadline as string);
-    if (new Date() > deadline) {
-      throw new ValidationError('Registration deadline has passed.');
-    }
+  const deadline = event.registration_deadline 
+    ? new Date(event.registration_deadline as string)
+    : new Date(event.event_date as string);
+  if (new Date() > deadline) {
+    throw new ValidationError('Registration deadline has passed.');
   }
 
-  // Check capacity
+  // Determine initial status based on registration_mode ('approval' vs 'instant')
+  const isApprovalMode = event.registration_mode === 'approval';
+
+  if (isApprovalMode) {
+    const result = await query(
+      `INSERT INTO event_registrations (event_id, user_id, status, attendance_mode)
+       VALUES ($1, $2, 'pending', $3)
+       ON CONFLICT (event_id, user_id) DO NOTHING
+       RETURNING *`,
+      [eventId, userId, data.attendance_mode]
+    );
+
+    if (!result.rowCount || result.rowCount === 0) {
+      throw new ConflictError('You have already applied or registered for this event.');
+    }
+    return result.rows[0];
+  }
+
+  // Instant Registration Mode: Check capacity
   if (event.capacity) {
     const regCount = await query(
       `SELECT COUNT(*) FROM event_registrations
-       WHERE event_id = $1 AND status != 'cancelled'`,
+       WHERE event_id = $1 AND status IN ('registered', 'attended')`,
       [eventId]
     );
     const count = parseInt((regCount.rows[0] as { count: string }).count, 10);
@@ -447,7 +577,10 @@ export async function registerForEvent(
          RETURNING *`,
         [eventId, userId, data.attendance_mode]
       );
-      return result.rows[0] ?? null;
+      if (!result.rowCount || result.rowCount === 0) {
+        throw new ConflictError('You are already registered or waitlisted for this event.');
+      }
+      return result.rows[0];
     }
   }
 
@@ -463,7 +596,7 @@ export async function registerForEvent(
     throw new ConflictError('You are already registered for this event.');
   }
 
-  // Increment attendee_count (optimistic, corrected on completion)
+  // Increment attendee_count
   await query(
     'UPDATE events SET attendee_count = attendee_count + 1 WHERE id = $1',
     [eventId]
@@ -473,20 +606,63 @@ export async function registerForEvent(
 }
 
 export async function cancelEventRegistration(eventId: string, userId: string) {
+  const event = await requireEvent(eventId);
+
+  // Check deadline / cancellation policy
+  const deadline = event.registration_deadline 
+    ? new Date(event.registration_deadline as string)
+    : new Date(event.event_date as string);
+
+  if (new Date() > deadline) {
+    throw new ValidationError('Registration can no longer be cancelled.');
+  }
+
   const result = await query(
     `UPDATE event_registrations
      SET status = 'cancelled'
-     WHERE event_id = $1 AND user_id = $2 AND status = 'registered'
-     RETURNING id`,
+     WHERE event_id = $1 AND user_id = $2 AND status IN ('registered', 'pending', 'waitlisted')
+     RETURNING id, status`,
     [eventId, userId]
   );
   if (!result.rowCount || result.rowCount === 0) {
-    throw new NotFoundError('Registration');
+    throw new NotFoundError('Active registration not found.');
   }
-  await query(
-    'UPDATE events SET attendee_count = GREATEST(0, attendee_count - 1) WHERE id = $1',
-    [eventId]
-  );
+
+  const cancelledStatus = (result.rows[0] as { status: string }).status;
+
+  // If a confirmed ('registered') student cancelled, check for waitlist promotion
+  if (cancelledStatus === 'registered') {
+    const waitlistResult = await query(
+      `SELECT id, user_id FROM event_registrations
+       WHERE event_id = $1 AND status = 'waitlisted'
+       ORDER BY registered_at ASC LIMIT 1`,
+      [eventId]
+    );
+
+    if (waitlistResult.rowCount && waitlistResult.rowCount > 0) {
+      const promotedReg = waitlistResult.rows[0] as { id: string; user_id: string };
+      
+      // Promote waitlisted student to 'registered'
+      await query(
+        `UPDATE event_registrations SET status = 'registered' WHERE id = $1`,
+        [promotedReg.id]
+      );
+
+      await createNotification({
+        userId: promotedReg.user_id,
+        title: `Seat Confirmed! 🎉`,
+        message: `A seat opened up for "${event.title}". You have been promoted from the waitlist to confirmed registration.`,
+        type: 'waitlist_promoted',
+        linkUrl: `/dashboard/events/${eventId}`
+      });
+    } else {
+      // Decrement attendee count if no waitlisted user was promoted
+      await query(
+        'UPDATE events SET attendee_count = GREATEST(0, attendee_count - 1) WHERE id = $1',
+        [eventId]
+      );
+    }
+  }
 }
 
 // ── Attendance ────────────────────────────────────────────────────────────────
@@ -622,3 +798,290 @@ export async function verifyCertificate(verificationToken: string) {
   }
   return result.rows[0];
 }
+
+// ── Notifications Helper ──────────────────────────────────────────────────────
+
+export async function createNotification(opts: {
+  userId: string;
+  title: string;
+  message: string;
+  type?: string;
+  linkUrl?: string;
+}) {
+  await query(
+    `INSERT INTO notifications (user_id, title, message, type, link_url)
+     VALUES ($1, $2, $3, $4, $5)`,
+    [opts.userId, opts.title, opts.message, opts.type || 'info', opts.linkUrl || null]
+  );
+}
+
+// ── Organizer Workflows ────────────────────────────────────────────────────────
+
+/** Fetch organizer dashboard events with stats and dynamic available actions. */
+export async function getOrganizerEvents(organizerId: string) {
+  const result = await query(
+    `SELECT e.*, c.name as club_name, c.logo_url as club_logo_url
+     FROM events e
+     LEFT JOIN clubs c ON c.id = e.club_id
+     WHERE (e.organiser_id = $1 OR e.club_id IN (
+       SELECT club_id FROM club_memberships WHERE user_id = $1 AND role IN ('president','lead','core') AND status = 'active'
+     ))
+       AND e.deleted_at IS NULL
+     ORDER BY e.updated_at DESC`,
+    [organizerId]
+  );
+
+  return result.rows.map((event) => {
+    const status = event.status as string;
+    const capacity = event.capacity ? Number(event.capacity) : null;
+    const attendeeCount = Number(event.attendee_count || 0);
+
+    // Compute dynamic actions based on event state
+    let actions: string[] = [];
+    if (status === 'draft') {
+      actions = ['edit', 'delete', 'submit'];
+    } else if (status === 'pending_faculty' || status === 'pending_admin') {
+      actions = ['view', 'withdraw'];
+    } else if (status === 'published') {
+      actions = ['view_registrations', 'edit', 'announcements', 'checkin', 'export', 'complete'];
+    } else if (status === 'completed') {
+      actions = ['statistics', 'certificates', 'archive'];
+    }
+
+    return {
+      ...event,
+      attendee_count: attendeeCount,
+      remaining_seats: capacity !== null ? Math.max(0, capacity - attendeeCount) : null,
+      available_actions: actions,
+    };
+  });
+}
+
+/** Withdraw pending event submission back to draft. */
+export async function withdrawEventSubmission(eventId: string, organizerId: string) {
+  const event = await requireEvent(eventId);
+  if (event.status !== 'pending_faculty' && event.status !== 'pending_admin') {
+    throw new ValidationError('Only pending submissions can be withdrawn.');
+  }
+
+  await query(
+    `UPDATE events SET status = 'draft', updated_at = now() WHERE id = $1`,
+    [eventId]
+  );
+
+  return { status: 'draft' };
+}
+
+/** Single/Bulk Registration Decision (Approve / Reject applications). */
+export async function decideApplications(opts: {
+  eventId: string;
+  organizerId: string;
+  registrationIds: string[];
+  action: 'approve' | 'reject';
+  decisionNotes?: string;
+}) {
+  const { eventId, organizerId, registrationIds, action, decisionNotes } = opts;
+  const event = await requireEvent(eventId);
+  if (event.status === 'completed' || event.archived_at) {
+    throw new ValidationError('Cannot modify applications for completed or archived events.');
+  }
+
+  if (action === 'approve') {
+    // Check capacity if set
+    if (event.capacity) {
+      const regCountResult = await query(
+        `SELECT COUNT(*) FROM event_registrations WHERE event_id = $1 AND status IN ('registered', 'attended')`,
+        [eventId]
+      );
+      const activeCount = parseInt(regCountResult.rows[0].count, 10);
+      if (activeCount + registrationIds.length > Number(event.capacity)) {
+        throw new ValidationError(`Approving ${registrationIds.length} applicants exceeds total capacity of ${event.capacity}.`);
+      }
+    }
+
+    const result = await query(
+      `UPDATE event_registrations
+       SET status = 'registered',
+           decision_by = $1,
+           decision_notes = $2,
+           decided_at = now()
+       WHERE event_id = $3
+         AND id = ANY($4::uuid[])
+         AND status = 'pending'
+       RETURNING user_id`,
+      [organizerId, decisionNotes || null, eventId, registrationIds]
+    );
+
+    const count = result.rowCount || 0;
+
+    // Increment attendee count
+    if (count > 0) {
+      await query(
+        `UPDATE events SET attendee_count = attendee_count + $1 WHERE id = $2`,
+        [count, eventId]
+      );
+
+      // Send in-app notification to approved students
+      for (const row of result.rows) {
+        await createNotification({
+          userId: (row as { user_id: string }).user_id,
+          title: 'Application Approved! 🎉',
+          message: `Your application for "${event.title}" has been approved. View your details.`,
+          type: 'registration_status',
+          linkUrl: `/dashboard/events/${eventId}`
+        });
+      }
+    }
+
+    return { approved_count: count };
+  } else {
+    // Action: Reject
+    const result = await query(
+      `UPDATE event_registrations
+       SET status = 'rejected',
+           decision_by = $1,
+           decision_notes = $2,
+           decided_at = now()
+       WHERE event_id = $3
+         AND id = ANY($4::uuid[])
+         AND status = 'pending'
+       RETURNING user_id`,
+      [organizerId, decisionNotes || null, eventId, registrationIds]
+    );
+
+    const count = result.rowCount || 0;
+
+    // Send in-app notification to rejected students
+    for (const row of result.rows) {
+      await createNotification({
+        userId: (row as { user_id: string }).user_id,
+        title: 'Application Update',
+        message: `Your application for "${event.title}" was not approved at this time.`,
+        type: 'registration_status',
+        linkUrl: `/dashboard/events/${eventId}`
+      });
+    }
+
+    return { rejected_count: count };
+  }
+}
+
+/** Complete an event: locks registrations, check-ins, and enables certificates. */
+export async function completeEvent(eventId: string, organizerId: string) {
+  const event = await requireEvent(eventId);
+  if (event.status === 'completed') {
+    throw new ValidationError('Event is already completed.');
+  }
+
+  await query(
+    `UPDATE events
+     SET status = 'completed',
+         completed_at = now(),
+         updated_at = now()
+     WHERE id = $1`,
+    [eventId]
+  );
+
+  return { status: 'completed' };
+}
+
+/** Archive an event: read-only historical freeze. */
+export async function archiveEvent(eventId: string, organizerId: string) {
+  const event = await requireEvent(eventId);
+
+  await query(
+    `UPDATE events
+     SET archived_at = now(),
+         updated_at = now()
+     WHERE id = $1`,
+    [eventId]
+  );
+
+  return { archived: true };
+}
+
+/** Broadcast announcement notification to all registered attendees. */
+export async function broadcastAnnouncement(eventId: string, organizerId: string, title: string, message: string) {
+  const event = await requireEvent(eventId);
+
+  const regResult = await query(
+    `SELECT user_id FROM event_registrations
+     WHERE event_id = $1 AND status IN ('registered', 'attended', 'pending')`,
+    [eventId]
+  );
+
+  for (const row of regResult.rows) {
+    await createNotification({
+      userId: (row as { user_id: string }).user_id,
+      title: `Announcement: ${event.title}`,
+      message: `${title} - ${message}`,
+      type: 'event_update',
+      linkUrl: `/dashboard/events/${eventId}`
+    });
+  }
+
+  return { broadcast_count: regResult.rowCount || 0 };
+}
+
+/** Issue digital participation certificates for all attended students of a completed event. */
+export async function issueCertificatesForEvent(eventId: string, organizerId: string) {
+  const event = await requireEvent(eventId);
+  
+  if (event.status !== 'completed') {
+    throw new ValidationError('Certificates can only be issued for completed events.');
+  }
+
+  const attendedRes = await query(
+    `SELECT er.id as reg_id, er.user_id, u.username
+     FROM event_registrations er
+     JOIN users u ON u.id = er.user_id
+     WHERE er.event_id = $1 AND er.status = 'attended' AND er.certificate_issued = FALSE`,
+    [eventId]
+  );
+
+  let issuedCount = 0;
+  for (const row of attendedRes.rows) {
+    const userId = (row as { user_id: string }).user_id;
+    const regId = (row as { reg_id: string }).reg_id;
+    const token = `CERT-${Math.random().toString(36).substring(2, 10).toUpperCase()}-${Date.now().toString(36).toUpperCase()}`;
+
+    await query(
+      `INSERT INTO certificates (event_id, user_id, certificate_type, verification_token, issued_at)
+       VALUES ($1, $2, 'participation', $3, now())`,
+      [eventId, userId, token]
+    );
+
+    await query(
+      `UPDATE event_registrations SET certificate_issued = TRUE WHERE id = $1`,
+      [regId]
+    );
+
+    await createNotification({
+      userId,
+      title: `Certificate Issued! 🎓`,
+      message: `Your verified participation certificate for "${event.title}" is now available. Token: ${token}`,
+      type: 'certificate',
+      linkUrl: `/api/v1/certificates/verify/${token}`
+    });
+
+    issuedCount++;
+  }
+
+  return { issued_count: issuedCount };
+}
+
+/** Get list of issued certificates for an event. */
+export async function getEventCertificates(eventId: string) {
+  const result = await query(
+    `SELECT c.id, c.verification_token, c.issued_at, c.certificate_type,
+            u.id as user_id, u.username, p.full_name
+     FROM certificates c
+     JOIN users u ON u.id = c.user_id
+     LEFT JOIN profiles p ON p.user_id = u.id
+     WHERE c.event_id = $1
+     ORDER BY c.issued_at DESC`,
+    [eventId]
+  );
+  return result.rows;
+}
+

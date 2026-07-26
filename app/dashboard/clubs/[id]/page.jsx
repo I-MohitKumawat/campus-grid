@@ -8,6 +8,7 @@
  */
 
 import { useState, useMemo, use } from 'react';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { 
   Users, 
@@ -17,7 +18,6 @@ import {
   Zap,
   Globe,
   Check,
-  Bookmark,
   MoreHorizontal,
   GraduationCap,
   Sparkles,
@@ -28,171 +28,59 @@ import {
   Star
 } from 'lucide-react';
 import DashboardNavbar from '@/components/layout/DashboardNavbar';
-
-const MOCK_CLUBS_DETAILS = {
-  c1: {
-    id: 'c1',
-    title: 'Google Developer Student Clubs',
-    category: 'Technical',
-    tagline: 'Code. Learn. Build. Impact.',
-    membersCount: '1.2K+',
-    established: 'Jan 2021',
-    about: 'Google Developer Student Clubs is a community for students interested in Google developer technologies. We learn together, build solutions, and grow as developers.',
-    aboutExtended: 'GDSC provides students with the opportunity to build their professional network, gain access to Google developer resources, and work together to solve real-world problems for local businesses and communities. We host weekly workshops, hackathons, and speaker sessions with industry experts.',
-    icon: Code,
-    gradient: 'from-blue-600/30 via-indigo-950/20 to-zinc-950',
-    coverIconColor: 'text-blue-400',
-    accentColor: 'blue',
-    membersTotal: 12,
-    rating: '4.8',
-    reviewsCount: 230,
-    coreTeam: [
-      { name: 'Arjun Dev', role: 'Lead', image: '/images/arjun.png' },
-      { name: 'Riya Sharma', role: 'Co-Lead', image: '' },
-      { name: 'Manav Raj', role: 'Tech Lead', image: '' },
-      { name: 'Neha Singh', role: 'Design Lead', image: '' },
-      { name: 'Sarthak Jain', role: 'Outreach Lead', image: '' },
-      { name: 'Priyesh Sen', role: 'Events Lead', image: '' },
-      { name: 'Aisha Khan', role: 'Dev Lead', image: '' },
-      { name: 'Rohit Verma', role: 'Marketing Lead', image: '' }
-    ]
-  },
-  c2: {
-    id: 'c2',
-    title: 'UX Designers Hub',
-    category: 'Creative',
-    tagline: 'Design. Critique. Polish. Master.',
-    membersCount: '850+',
-    established: 'Sep 2022',
-    about: 'UX Designers Hub is a space for UI/UX design collaboration, Figma critique sessions, portfolio reviews, and learning standard design methodologies.',
-    aboutExtended: 'We bring together aspiring and experienced product designers to collaborate on design sprints, share feedback on active Figma files, and build premium portfolio-grade projects. Join us to elevate your wireframing, prototyping, and user testing skills.',
-    icon: Palette,
-    gradient: 'from-fuchsia-600/30 via-purple-950/20 to-zinc-950',
-    coverIconColor: 'text-fuchsia-400',
-    accentColor: 'fuchsia',
-    membersTotal: 8,
-    rating: '4.9',
-    reviewsCount: 124,
-    coreTeam: [
-      { name: 'Neha Singh', role: 'Lead', image: '' },
-      { name: 'Arjun Dev', role: 'Co-Lead', image: '/images/arjun.png' },
-      { name: 'Riya Sharma', role: 'Design Mentor', image: '' },
-      { name: 'Rohit Verma', role: 'Creative Director', image: '' },
-      { name: 'Sarthak Jain', role: 'Events Co-Lead', image: '' },
-      { name: 'Manav Raj', role: 'Interaction Engineer', image: '' }
-    ]
-  },
-  c3: {
-    id: 'c3',
-    title: 'Debate Society',
-    category: 'Public Speaking',
-    tagline: 'Speak. Convince. Reason. Win.',
-    membersCount: '340+',
-    established: 'Aug 2020',
-    about: 'Sharpen your rhetoric, critical thinking, and communication skills through debate workouts, regional tournaments, and mock parliaments.',
-    aboutExtended: 'Debate Society is campus’s premier forum for public address, rhetorical analysis, and policy dissection. We host weekly mock trials, British Parliamentary style spars, and prep workshops to excel in national tournaments.',
-    icon: MessageSquare,
-    gradient: 'from-amber-600/30 via-yellow-950/20 to-zinc-950',
-    coverIconColor: 'text-amber-400',
-    accentColor: 'amber',
-    membersTotal: 6,
-    rating: '4.7',
-    reviewsCount: 92,
-    coreTeam: [
-      { name: 'Sarthak Jain', role: 'Lead', image: '' },
-      { name: 'Manav Raj', role: 'Debate Coach', image: '' },
-      { name: 'Aisha Khan', role: 'Operations Lead', image: '' },
-      { name: 'Riya Sharma', role: 'Research Head', image: '' },
-      { name: 'Arjun Dev', role: 'Tech Coordinator', image: '/images/arjun.png' }
-    ]
-  },
-  c4: {
-    id: 'c4',
-    title: 'Robotics Club',
-    category: 'Engineering',
-    tagline: 'Design. Wire. Program. Launch.',
-    membersCount: '620+',
-    established: 'Mar 2022',
-    about: 'Building autonomous rovers, drones, and smart robotic arms. Get access to hardware kits, sensors, 3D printers, and development microcontrollers.',
-    aboutExtended: 'We merge software control, mechanical design, and electrical wiring. Members work on hands-on team projects preparing for national robotics competitions, hackathons, and hardware-software showcase exhibits.',
-    icon: Zap,
-    gradient: 'from-emerald-600/30 via-teal-950/20 to-zinc-950',
-    coverIconColor: 'text-emerald-400',
-    accentColor: 'emerald',
-    membersTotal: 10,
-    rating: '4.8',
-    reviewsCount: 145,
-    coreTeam: [
-      { name: 'Manav Raj', role: 'Lead', image: '' },
-      { name: 'Arjun Dev', role: 'Software Lead', image: '/images/arjun.png' },
-      { name: 'Priyesh Sen', role: 'Mechanical Lead', image: '' },
-      { name: 'Neha Singh', role: 'Hardware Designer', image: '' },
-      { name: 'Riya Sharma', role: 'Co-Lead', image: '' },
-      { name: 'Sarthak Jain', role: 'Treasurer', image: '' }
-    ]
-  },
-  c5: {
-    id: 'c5',
-    title: 'Web3 & Blockchain',
-    category: 'Technical',
-    tagline: 'Code. Cryptography. Decentralize. Secure.',
-    membersCount: '280+',
-    established: 'Nov 2023',
-    about: 'Smart contract development, dApps auditing, decentralized networking, and exploring new Web3 protocols together.',
-    aboutExtended: 'A developer-first cluster focusing on Ethereum ecosystem, Rust coding for Solana, Zero Knowledge proofs, and building decentralized finance products. We support members in attending major Web3 hackathons globally.',
-    icon: Globe,
-    gradient: 'from-purple-600/30 via-violet-950/20 to-zinc-950',
-    coverIconColor: 'text-purple-400',
-    accentColor: 'purple',
-    membersTotal: 5,
-    rating: '4.6',
-    reviewsCount: 68,
-    coreTeam: [
-      { name: 'Aisha Khan', role: 'Lead', image: '' },
-      { name: 'Manav Raj', role: 'Smart Contract Dev', image: '' },
-      { name: 'Rohit Verma', role: 'Outreach Co-Lead', image: '' },
-      { name: 'Arjun Dev', role: 'Solidity Mentor', image: '/images/arjun.png' },
-      { name: 'Neha Singh', role: 'UI Architect', image: '' }
-    ]
-  }
-};
+import { useAuth } from '@/components/providers/AuthProvider';
 
 export default function ClubDetailPage({ params }) {
+  const router = useRouter();
   const resolvedParams = use(params);
   const clubId = resolvedParams.id;
-  const club = MOCK_CLUBS_DETAILS[clubId] || MOCK_CLUBS_DETAILS.c1; // Fallback to c1
 
-  const [isJoined, setIsJoined] = useState(clubId === 'c3'); // debate society pre-joined
+  const { user } = useAuth();
+  const [club, setClub] = useState(null);
+  const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('overview'); // overview, aboutUs
   const [startIndex, setStartIndex] = useState(0);
 
-  // Mock User Session
-  const user = { username: 'arjun', role: 'admin', email: 'arjun@college.ac.in' };
-  const handleLogout = () => alert('Logout clicked');
+  useEffect(() => {
+    async function loadClubDetails() {
+      try {
+        const clubRes = await fetch(`/api/v1/clubs/${clubId}`, { cache: 'no-store' });
+        const clubData = await clubRes.json().catch(() => null);
+        if (clubRes.ok && clubData?.success && clubData?.data) {
+          setClub(clubData.data);
+        } else {
+          setClub(null);
+        }
+      } catch (err) {
+        console.error('Failed to load club details:', err);
+        setClub(null);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadClubDetails();
+  }, [clubId]);
 
-  const handleToggleJoin = () => {
-    setIsJoined(!isJoined);
-  };
-
-  // Carousel Pagination for Core Team (shows up to 5 members at once)
+  // Carousel Pagination for Core Team
   const visibleTeam = useMemo(() => {
-    const team = club.coreTeam;
+    const team = club?.members || [];
     if (team.length <= 5) return team;
-    // circular slice or cap at length
     const result = [];
     for (let i = 0; i < 5; i++) {
       const index = (startIndex + i) % team.length;
       result.push(team[index]);
     }
     return result;
-  }, [club.coreTeam, startIndex]);
+  }, [club, startIndex]);
 
   const handleNextTeam = () => {
-    setStartIndex((prev) => (prev + 1) % club.coreTeam.length);
+    const teamLen = club?.members?.length || 1;
+    setStartIndex((prev) => (prev + 1) % teamLen);
   };
 
   const handlePrevTeam = () => {
-    setStartIndex((prev) => (prev - 1 + club.coreTeam.length) % club.coreTeam.length);
+    const teamLen = club?.members?.length || 1;
+    setStartIndex((prev) => (prev - 1 + teamLen) % teamLen);
   };
 
   const ClubIcon = club.icon;
@@ -227,14 +115,17 @@ export default function ClubDetailPage({ params }) {
     );
   };
 
+  if (loading) return null;
+  if (!club) return <div>Club not found</div>;
+
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 relative overflow-hidden pb-20">
       {/* Background ambient glowing spheres */}
       <div className="absolute top-0 right-1/4 -z-10 h-[600px] w-[600px] rounded-full bg-violet-600/5 blur-[120px]" />
       <div className="absolute bottom-0 left-1/4 -z-10 h-[500px] w-[500px] rounded-full bg-cyan-600/5 blur-[120px]" />
 
-      {/* Dashboard Navbar */}
-      <DashboardNavbar user={user} onLogout={handleLogout} />
+      {/* Top navbar */}
+      <DashboardNavbar />
 
       <main className="max-w-7xl mx-auto px-6 pt-8 space-y-8">
         

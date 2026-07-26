@@ -71,14 +71,27 @@ export const POST = withValidation(
 export const GET = withAuth(async (_req, _ctx, user) => {
   try {
     const result = await query(
-      `SELECT id, email, username, role, is_onboarded, onboarding_step, xp, campus_score, avatar_url
-       FROM users
-       WHERE id = $1 AND deleted_at IS NULL`,
+      `SELECT u.id, u.email, u.username, u.role, u.is_onboarded, u.onboarding_step, u.xp, u.campus_score, u.avatar_url, p.full_name
+       FROM users u
+       LEFT JOIN profiles p ON p.user_id = u.id
+       WHERE u.id = $1 AND u.deleted_at IS NULL`,
       [user.sub]
     );
 
     if (!result.rowCount || result.rowCount === 0) {
-      throw new NotFoundError('User not found.');
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: { message: 'Session user no longer exists.', code: 'UNAUTHORIZED' },
+        }),
+        {
+          status: 401,
+          headers: {
+            'Content-Type': 'application/json',
+            'Set-Cookie': clearSessionCookie(),
+          },
+        }
+      );
     }
 
     return new Response(
@@ -95,7 +108,19 @@ export const GET = withAuth(async (_req, _ctx, user) => {
     );
   } catch (err) {
     if (err instanceof AppError) {
-      return errorResponse(err.message, err.statusCode, err.code);
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: { message: err.message, code: err.code },
+        }),
+        {
+          status: err.statusCode,
+          headers: {
+            'Content-Type': 'application/json',
+            'Set-Cookie': clearSessionCookie(),
+          },
+        }
+      );
     }
     console.error('[GET /auth/session]', err);
     return errorResponse('Failed to retrieve session.', 500, 'INTERNAL_ERROR');

@@ -25,21 +25,26 @@ import {
   Settings
 } from 'lucide-react';
 
-export default function DashboardNavbar({ user, onLogout }) {
+import { useAuth } from '@/components/providers/AuthProvider';
+
+export default function DashboardNavbar({ user: propsUser, onLogout: propsLogout }) {
   const pathname = usePathname();
   const router = useRouter();
+  const { user: authUser, logout: authLogout } = useAuth();
+  const user = propsUser || authUser;
+  const onLogout = propsLogout || authLogout;
   const [dropdownOpen, setDropdownOpen] = useState(false);
 
-  // Capsule Navigation Items
+  // Capsule Navigation Items — Only Complete MVP Routes
   const navItems = [
     { name: 'Dashboard', href: '/dashboard', icon: Home },
-    { name: 'Explore', href: '/dashboard/explore', icon: Search },
-    { name: 'Projects', href: '/dashboard/projects', icon: Terminal },
-    { name: 'Tasks', href: '/dashboard/tasks', icon: ClipboardCheck },
-    { name: 'Rooms', href: '/dashboard/rooms', icon: Tv },
     { name: 'Events', href: '/dashboard/events', icon: Calendar },
     { name: 'Clubs', href: '/dashboard/clubs', icon: Users },
   ];
+
+  if (user?.role === 'admin' || user?.role === 'club_lead' || user?.role === 'faculty') {
+    navItems.push({ name: 'Event Studio', href: '/dashboard/event-studio', icon: Terminal });
+  }
 
   return (
     <header className="w-full bg-zinc-950/80 backdrop-blur-md sticky top-0 z-50 px-6 h-20 border-b border-zinc-900/60 flex items-center justify-between">
@@ -90,26 +95,25 @@ export default function DashboardNavbar({ user, onLogout }) {
           onClick={() => setDropdownOpen(!dropdownOpen)}
           className="flex items-center gap-3 rounded-full border border-zinc-850 bg-zinc-900/40 hover:bg-zinc-900/80 transition-all p-1.5 pl-1.5 pr-4 cursor-pointer outline-none select-none text-left"
         >
-          {/* User Avatar */}
-          <div className="relative h-8 w-8 rounded-full overflow-hidden border border-zinc-700 bg-zinc-800 shadow-inner shrink-0">
-            {/* If username starts with 'arjun', use arjun dev portrait */}
-            {user?.username === 'arjun' ? (
+          {/* Avatar Container */}
+          <div className="relative h-8 w-8 rounded-full overflow-hidden shrink-0 border border-zinc-700/80 shadow-inner">
+            {user?.avatar_url ? (
               <img 
-                src="/images/arjun.png" 
-                alt="Arjun Dev" 
+                src={user.avatar_url} 
+                alt={user.full_name || user.username} 
                 className="h-full w-full object-cover"
               />
             ) : (
               <div className="h-full w-full flex items-center justify-center font-bold text-xs text-white uppercase bg-gradient-to-tr from-accent to-violet-500">
-                {user?.username?.charAt(0) || 'U'}
+                {(user?.full_name || user?.username || 'U').charAt(0).toUpperCase()}
               </div>
             )}
           </div>
 
           {/* User Text Details */}
           <div className="hidden sm:flex flex-col pr-1">
-            <span className="text-xs font-bold text-zinc-100 tracking-wide">
-              {user?.username === 'arjun' ? 'Arjun Dev' : user?.full_name || user?.username || 'User Profile'}
+            <span className="text-xs font-bold text-zinc-100 tracking-wide truncate max-w-[120px]">
+              {user?.full_name || user?.username || 'User Profile'}
             </span>
             <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest leading-none mt-0.5">
               {user?.role || 'Student'}
@@ -137,20 +141,13 @@ export default function DashboardNavbar({ user, onLogout }) {
               <Link
                 href="/dashboard/profile"
                 onClick={() => setDropdownOpen(false)}
-                className="flex items-center gap-2.5 w-full px-3 py-2 text-xs font-bold text-zinc-400 hover:text-white hover:bg-zinc-800 rounded-xl transition-all"
+                className="flex items-center gap-2.5 w-full px-3 py-2 text-xs font-bold text-zinc-300 hover:text-white hover:bg-zinc-800/60 rounded-xl transition-all"
               >
-                <User className="h-4 w-4" />
+                <User className="h-4 w-4 text-accent" />
                 <span>My Profile</span>
               </Link>
 
-              <Link
-                href="/dashboard/settings"
-                onClick={() => setDropdownOpen(false)}
-                className="flex items-center gap-2.5 w-full px-3 py-2 text-xs font-bold text-zinc-400 hover:text-white hover:bg-zinc-800 rounded-xl transition-all"
-              >
-                <Settings className="h-4 w-4" />
-                <span>Settings</span>
-              </Link>
+
 
               <button
                 onClick={() => {

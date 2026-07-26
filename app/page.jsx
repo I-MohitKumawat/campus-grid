@@ -6,6 +6,7 @@
  */
 
 import { cookies } from 'next/headers';
+import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { verifyToken } from '@/lib/jwt';
 import Navbar from '@/components/layout/Navbar';
@@ -23,14 +24,13 @@ import {
 export default async function RootPage() {
   const cookieStore = await cookies();
   const token = cookieStore.get('cg_token')?.value;
-  let isLoggedIn = false;
 
   if (token) {
     try {
       verifyToken(token);
-      isLoggedIn = true;
+      redirect('/dashboard');
     } catch {
-      isLoggedIn = false;
+      // Invalid token, render public landing page
     }
   }
 

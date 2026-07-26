@@ -28,6 +28,7 @@ export const EventCreateSchema = z.object({
   domain_tags: z.array(z.string().max(40)).max(8).optional(),
   certificates_enabled: z.boolean().default(false),
   check_in_enabled: z.boolean().default(false),
+  registration_mode: z.enum(['instant', 'approval']).default('instant'),
   speaker_info: z
     .object({
       name: z.string(),

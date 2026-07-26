@@ -3,72 +3,93 @@
 /**
  * app/sign-in/page.jsx
  *
- * Premium client-side Authentication page for CampusGrid.
- * Supports Sign In & Sign Up flows, gates inputs to allowed domains,
- * and handles JWT session cookie setup via local backend endpoints.
- * Includes quick-access developer demo logins.
+ * Client-side Authentication page for CampusGrid.
+ * Handles login, client-side validation, error feedback, loading indicators,
+ * and dev credential quick-login (development mode only).
  */
 
 import { useState, useEffect, Suspense } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { 
-  Sparkles, 
   Mail, 
   Lock, 
   ArrowRight, 
   CheckCircle, 
   AlertTriangle,
   Fingerprint,
-  UserCheck
+  UserCheck,
+  HelpCircle
 } from 'lucide-react';
 
 function SignInForm() {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  
-  // Set default mode based on query params (e.g. ?mode=signup)
-  const initialMode = searchParams.get('mode') === 'signup' ? 'signup' : 'signin';
-  const [mode, setMode] = useState(initialMode);
   
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [info, setInfo] = useState('');
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [checkingAuth, setCheckingAuth] = useState(true);
 
-  // Sync mode state with query changes
+  const isDev = process.env.NODE_ENV === 'development';
+
+  // Check if user is already authenticated on page load
   useEffect(() => {
-    const currentMode = searchParams.get('mode') === 'signup' ? 'signup' : 'signin';
-    setMode(currentMode);
-    setError('');
-  }, [searchParams]);
+    async function checkExistingAuth() {
+      try {
+        const res = await fetch('/api/v1/auth/session');
+        const result = await res.json();
+        if (res.ok && result.success && result.data) {
+          router.replace('/dashboard');
+          return;
+        }
+      } catch {
+        // Not authenticated, stay on sign-in page
+      } finally {
+        setCheckingAuth(false);
+      }
+    }
+    checkExistingAuth();
+  }, [router]);
 
-  // Handle Sign In / Sign Up submission
+  const handleForgotPassword = () => {
+    setError('');
+    setInfo('Password reset functionality is currently disabled by system administrator.');
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+    setInfo('');
+
+    const trimmedEmail = email.trim();
+    
+    // 1. Validation: Empty email
+    if (!trimmedEmail) {
+      setError('Email is required.');
+      return;
+    }
+
+    // 2. Validation: Invalid email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(trimmedEmail)) {
+      setError('Please enter a valid email address.');
+      return;
+    }
+
+    // 3. Validation: Empty password
+    if (!password) {
+      setError('Password is required.');
+      return;
+    }
+
     setLoading(true);
 
-    if (!email || !password) {
-      setError('Please fill in all fields.');
-      setLoading(false);
-      return;
-    }
-
-    // Basic domain validation feedback
-    const emailParts = email.split('@');
-    if (emailParts.length < 2) {
-      setError('Please enter a valid email address.');
-      setLoading(false);
-      return;
-    }
-
     try {
+      const emailParts = trimmedEmail.split('@');
       const emailPrefix = emailParts[0];
-      
-      // Simulate Firebase Auth ID token locally by passing 'dev-[username]'
-      // The server-side verifyFirebaseIdToken function bypasses verification for dev- tokens in development mode.
       const idToken = `dev-${emailPrefix}`;
 
       const res = await fetch('/api/v1/auth/session', {
@@ -79,33 +100,51 @@ function SignInForm() {
         body: JSON.stringify({ id_token: idToken }),
       });
 
-      const result = await res.json();
+      if (!res.ok) {
+        if (res.status === 404) {
+          throw new Error('No account found with this email.');
+        }
+        if (res.status === 401 || res.status === 403) {
+          throw new Error('Incorrect password. Please try again.');
+        }
+        if (res.status >= 500) {
+          throw new Error('Server unavailable. Please try again later.');
+        }
+      }
 
-      if (!res.ok || !result.success) {
-        throw new Error(result.error?.message || 'Authentication failed.');
+      const result = await res.json().catch(() => null);
+
+      if (!result || !result.success) {
+        const msg = result?.error?.message || 'Authentication failed.';
+        if (msg.toLowerCase().includes('not found') || msg.toLowerCase().includes('user')) {
+          throw new Error('No account found with this email.');
+        }
+        if (msg.toLowerCase().includes('password') || msg.toLowerCase().includes('invalid')) {
+          throw new Error('Incorrect password. Please try again.');
+        }
+        throw new Error(msg);
       }
 
       setSuccess(true);
       
-      // Redirect to dashboard or onboarding depending on user status
       setTimeout(() => {
-        if (result.data.is_onboarded) {
-          router.push('/dashboard');
-        } else {
-          router.push('/onboarding');
-        }
+        router.push('/dashboard');
         router.refresh();
-      }, 1000);
+      }, 800);
 
     } catch (err) {
-      setError(err.message || 'An unexpected error occurred.');
+      if (err instanceof TypeError && err.message.includes('fetch')) {
+        setError('Server unavailable. Please try again later.');
+      } else {
+        setError(err.message || 'An unexpected error occurred.');
+      }
       setLoading(false);
     }
   };
 
-  // Quick helper for demo developer logins
   const handleQuickLogin = async (username) => {
     setError('');
+    setInfo('');
     setLoading(true);
     const demoEmail = `${username}@college.ac.in`;
     setEmail(demoEmail);
@@ -128,18 +167,27 @@ function SignInForm() {
 
       setSuccess(true);
       setTimeout(() => {
-        if (result.data.is_onboarded) {
-          router.push('/dashboard');
-        } else {
-          router.push('/onboarding'); // Redirects to onboarding if new
-        }
+        router.push('/dashboard');
         router.refresh();
-      }, 1000);
+      }, 800);
     } catch (err) {
-      setError(err.message);
+      if (err instanceof TypeError && err.message.includes('fetch')) {
+        setError('Server unavailable. Please try again later.');
+      } else {
+        setError(err.message);
+      }
       setLoading(false);
     }
   };
+
+  if (checkingAuth) {
+    return (
+      <div className="min-h-screen flex flex-col justify-center items-center bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-50">
+        <div className="h-9 w-9 animate-spin rounded-full border-4 border-accent border-t-transparent" />
+        <p className="mt-4 text-xs font-medium text-zinc-500">Checking authentication...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex flex-col justify-center items-center bg-white text-zinc-900 transition-colors duration-300 dark:bg-zinc-950 dark:text-zinc-50 relative overflow-hidden px-4">
@@ -167,29 +215,37 @@ function SignInForm() {
             </span>
           </Link>
           <h2 className="font-display text-xl font-bold text-brand dark:text-zinc-50">
-            {mode === 'signin' ? 'Welcome Back' : 'Create Your Account'}
+            Access using your college account.
           </h2>
           <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1.5">
-            {mode === 'signin' ? 'Sign in to access your campus dashboard.' : 'Enter your official college email to get started.'}
+            Sign in to access your campus dashboard.
           </p>
         </div>
 
         {/* Card Form */}
         <div className="relative rounded-[28px] border border-zinc-200/80 bg-white p-6 shadow-2xl shadow-zinc-200/40 transition-all duration-300 dark:border-zinc-850 dark:bg-zinc-900/35 dark:shadow-none sm:p-8">
           
-          <form onSubmit={handleSubmit} className="space-y-5">
+          <form onSubmit={handleSubmit} className="space-y-5" noValidate>
             
             {/* Error Message */}
             {error && (
-              <div className="flex items-start gap-2.5 rounded-xl bg-rose-50 border border-rose-100 p-3.5 text-xs font-semibold text-rose-600 dark:bg-rose-950/20 dark:border-rose-900/40 dark:text-rose-450 animate-fadeIn">
+              <div className="flex items-start gap-2.5 rounded-xl bg-rose-50 border border-rose-100 p-3.5 text-xs font-semibold text-rose-600 dark:bg-rose-950/20 dark:border-rose-900/40 dark:text-rose-400 animate-fadeIn">
                 <AlertTriangle className="h-4.5 w-4.5 shrink-0 mt-0.5" />
                 <span>{error}</span>
               </div>
             )}
 
+            {/* Info Message (e.g. Forgot Password placeholder) */}
+            {info && (
+              <div className="flex items-start gap-2.5 rounded-xl bg-indigo-50 border border-indigo-100 p-3.5 text-xs font-semibold text-indigo-600 dark:bg-indigo-950/20 dark:border-indigo-900/40 dark:text-indigo-400 animate-fadeIn">
+                <HelpCircle className="h-4.5 w-4.5 shrink-0 mt-0.5" />
+                <span>{info}</span>
+              </div>
+            )}
+
             {/* Success Message */}
             {success && (
-              <div className="flex items-start gap-2.5 rounded-xl bg-emerald-50 border border-emerald-100 p-3.5 text-xs font-semibold text-emerald-600 dark:bg-emerald-950/20 dark:border-emerald-900/40 dark:text-emerald-450 animate-fadeIn">
+              <div className="flex items-start gap-2.5 rounded-xl bg-emerald-50 border border-emerald-100 p-3.5 text-xs font-semibold text-emerald-600 dark:bg-emerald-950/20 dark:border-emerald-900/40 dark:text-emerald-400 animate-fadeIn">
                 <CheckCircle className="h-4.5 w-4.5 shrink-0 mt-0.5" />
                 <span>Success! Redirecting you now...</span>
               </div>
@@ -205,11 +261,11 @@ function SignInForm() {
                 <input
                   id="email"
                   type="email"
-                  placeholder="name@college.ac.in"
+                  placeholder="Email Address"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   disabled={loading || success}
-                  className="w-full rounded-xl border border-zinc-200 bg-zinc-50 pl-10 pr-4 py-3 text-sm text-brand placeholder-zinc-400 outline-none transition-all duration-300 focus:border-accent focus:bg-white dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder-zinc-500 dark:focus:border-accent dark:focus:bg-zinc-950"
+                  className="w-full rounded-xl border border-zinc-200 bg-zinc-50 pl-10 pr-4 py-3 text-sm text-brand placeholder-zinc-400 outline-none transition-all duration-300 focus:border-accent focus:bg-white dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder-zinc-500 dark:focus:border-accent dark:focus:bg-zinc-950 disabled:opacity-50 disabled:cursor-not-allowed"
                 />
               </div>
             </div>
@@ -218,6 +274,13 @@ function SignInForm() {
             <div className="space-y-1.5">
               <div className="flex justify-between items-center">
                 <label htmlFor="password" className="text-xs font-bold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">Password</label>
+                <button
+                  type="button"
+                  onClick={handleForgotPassword}
+                  className="text-xs text-accent hover:underline focus:outline-none cursor-pointer"
+                >
+                  Forgot password?
+                </button>
               </div>
               <div className="relative">
                 <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
@@ -230,7 +293,7 @@ function SignInForm() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   disabled={loading || success}
-                  className="w-full rounded-xl border border-zinc-200 bg-zinc-50 pl-10 pr-4 py-3 text-sm text-brand placeholder-zinc-400 outline-none transition-all duration-300 focus:border-accent focus:bg-white dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder-zinc-500 dark:focus:border-accent dark:focus:bg-zinc-950"
+                  className="w-full rounded-xl border border-zinc-200 bg-zinc-50 pl-10 pr-4 py-3 text-sm text-brand placeholder-zinc-400 outline-none transition-all duration-300 focus:border-accent focus:bg-white dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder-zinc-500 dark:focus:border-accent dark:focus:bg-zinc-950 disabled:opacity-50 disabled:cursor-not-allowed"
                 />
               </div>
             </div>
@@ -245,64 +308,41 @@ function SignInForm() {
                 <div className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent" />
               ) : (
                 <span className="flex items-center gap-1">
-                  {mode === 'signin' ? 'Sign In' : 'Create Account'}
+                  Sign In
                   <ArrowRight className="h-4 w-4" />
                 </span>
               )}
             </button>
           </form>
 
-          {/* Tab toggling info */}
-          <div className="mt-6 text-center text-xs text-zinc-500 dark:text-zinc-400">
-            {mode === 'signin' ? (
-              <span>
-                Don&apos;t have an account?{' '}
+          {/* Quick Login Section (Only visible in development environment) */}
+          {isDev && (
+            <div className="mt-8 pt-6 border-t border-zinc-150 dark:border-zinc-800/80">
+              <p className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-widest text-center mb-3 flex items-center justify-center gap-1">
+                <Fingerprint className="h-3.5 w-3.5 text-accent" /> Developer Testing Credentials
+              </p>
+              <div className="grid grid-cols-2 gap-3">
                 <button
-                  onClick={() => router.push('/sign-in?mode=signup')}
-                  className="font-bold text-accent hover:underline cursor-pointer"
+                  type="button"
+                  onClick={() => handleQuickLogin('arjun')}
+                  disabled={loading || success}
+                  className="flex items-center justify-center gap-1.5 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Sign Up
+                  <UserCheck className="h-3.5 w-3.5 text-accent" />
+                  Login as Arjun
                 </button>
-              </span>
-            ) : (
-              <span>
-                Already have an account?{' '}
                 <button
-                  onClick={() => router.push('/sign-in')}
-                  className="font-bold text-accent hover:underline cursor-pointer"
+                  type="button"
+                  onClick={() => handleQuickLogin('riya')}
+                  disabled={loading || success}
+                  className="flex items-center justify-center gap-1.5 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Sign In
+                  <UserCheck className="h-3.5 w-3.5 text-accent" />
+                  Login as Riya
                 </button>
-              </span>
-            )}
-          </div>
-
-          {/* Quick Login Section */}
-          <div className="mt-8 pt-6 border-t border-zinc-150 dark:border-zinc-800/80">
-            <p className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-widest text-center mb-3 flex items-center justify-center gap-1">
-              <Fingerprint className="h-3.5 w-3.5 text-accent" /> Developer Testing Credentials
-            </p>
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                onClick={() => handleQuickLogin('arjun')}
-                disabled={loading || success}
-                className="flex items-center justify-center gap-1.5 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800 cursor-pointer"
-              >
-                <UserCheck className="h-3.5 w-3.5 text-accent" />
-                Login as Arjun
-              </button>
-              <button
-                type="button"
-                onClick={() => handleQuickLogin('riya')}
-                disabled={loading || success}
-                className="flex items-center justify-center gap-1.5 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800 cursor-pointer"
-              >
-                <UserCheck className="h-3.5 w-3.5 text-accent" />
-                Login as Riya
-              </button>
+              </div>
             </div>
-          </div>
+          )}
 
         </div>
       </div>

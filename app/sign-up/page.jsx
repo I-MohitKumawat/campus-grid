@@ -3,8 +3,7 @@
 /**
  * app/sign-up/page.jsx
  *
- * Lightweight client-side router redirect.
- * Routes users requesting '/sign-up' to our main combined '/sign-in?mode=signup' flow.
+ * Redirects any attempts to visit '/sign-up' to '/sign-in'.
  */
 
 import { useRouter } from 'next/navigation';
@@ -14,7 +13,7 @@ export default function SignUpPage() {
   const router = useRouter();
 
   useEffect(() => {
-    router.replace('/sign-in?mode=signup');
+    router.replace('/sign-in');
   }, [router]);
 
   return (

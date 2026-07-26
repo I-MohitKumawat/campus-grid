@@ -6,6 +6,7 @@
 
 import './globals.css';
 import ThemeProvider from '@/components/layout/ThemeProvider';
+import { AuthProvider } from '@/components/providers/AuthProvider';
 
 export const metadata = {
   title: {
@@ -27,7 +28,9 @@ export default function RootLayout({ children }) {
     <html lang="en" className="h-full antialiased scroll-smooth scroll-pt-20" suppressHydrationWarning>
       <body className="min-h-full flex flex-col bg-white dark:bg-zinc-950">
         <ThemeProvider>
-          {children}
+          <AuthProvider>
+            {children}
+          </AuthProvider>
         </ThemeProvider>
       </body>
     </html>
