@@ -29,6 +29,8 @@ export const db: Pool =
     connectionTimeoutMillis: 5_000,
     ssl:
       process.env.DATABASE_URL.includes('neon.tech') ||
+      process.env.DATABASE_URL.includes('render.com') ||
+      process.env.DATABASE_URL.includes('oregon-postgres') ||
       process.env.DATABASE_URL.includes('sslmode=require')
         ? { rejectUnauthorized: false }
         : false,

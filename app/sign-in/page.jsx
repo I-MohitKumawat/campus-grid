@@ -19,7 +19,8 @@ import {
   AlertTriangle,
   Fingerprint,
   UserCheck,
-  HelpCircle
+  HelpCircle,
+  ShieldCheck
 } from 'lucide-react';
 
 function SignInForm() {
@@ -321,24 +322,33 @@ function SignInForm() {
               <p className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-widest text-center mb-3 flex items-center justify-center gap-1">
                 <Fingerprint className="h-3.5 w-3.5 text-accent" /> Developer Testing Credentials
               </p>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleQuickLogin('admin')}
+                  disabled={loading || success}
+                  className="flex items-center justify-center gap-1.5 rounded-xl border border-rose-500/30 bg-rose-950/30 text-rose-300 hover:bg-rose-900/40 px-2 py-2 text-xs font-bold cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <ShieldCheck className="h-3.5 w-3.5 text-rose-400" />
+                  Admin
+                </button>
                 <button
                   type="button"
                   onClick={() => handleQuickLogin('arjun')}
                   disabled={loading || success}
-                  className="flex items-center justify-center gap-1.5 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="flex items-center justify-center gap-1.5 rounded-xl border border-zinc-200 bg-zinc-50 px-2 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <UserCheck className="h-3.5 w-3.5 text-accent" />
-                  Login as Arjun
+                  Arjun
                 </button>
                 <button
                   type="button"
                   onClick={() => handleQuickLogin('riya')}
                   disabled={loading || success}
-                  className="flex items-center justify-center gap-1.5 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="flex items-center justify-center gap-1.5 rounded-xl border border-zinc-200 bg-zinc-50 px-2 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <UserCheck className="h-3.5 w-3.5 text-accent" />
-                  Login as Riya
+                  Riya
                 </button>
               </div>
             </div>

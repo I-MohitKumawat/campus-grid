@@ -22,7 +22,8 @@ import {
   ChevronDown,
   LogOut,
   User,
-  Settings
+  Settings,
+  ShieldCheck
 } from 'lucide-react';
 
 import { useAuth } from '@/components/providers/AuthProvider';
@@ -44,6 +45,10 @@ export default function DashboardNavbar({ user: propsUser, onLogout: propsLogout
 
   if (user?.role === 'admin' || user?.role === 'club_lead' || user?.role === 'faculty') {
     navItems.push({ name: 'Event Studio', href: '/dashboard/event-studio', icon: Terminal });
+  }
+
+  if (user?.role === 'admin') {
+    navItems.push({ name: 'Admin Console', href: '/dashboard/admin', icon: ShieldCheck });
   }
 
   return (

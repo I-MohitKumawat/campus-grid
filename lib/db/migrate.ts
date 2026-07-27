@@ -42,9 +42,12 @@ const MIGRATIONS_DIR = path.resolve(__dirname, 'migrations');
 async function run() {
   const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
-    ssl: process.env.DATABASE_URL!.includes('neon.tech')
-      ? { rejectUnauthorized: false }
-      : false,
+    ssl:
+      process.env.DATABASE_URL!.includes('neon.tech') ||
+      process.env.DATABASE_URL!.includes('render.com') ||
+      process.env.DATABASE_URL!.includes('oregon-postgres')
+        ? { rejectUnauthorized: false }
+        : false,
   });
 
   const client = await pool.connect();

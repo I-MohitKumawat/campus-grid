@@ -24,6 +24,7 @@ import {
 export default async function RootPage() {
   const cookieStore = await cookies();
   const token = cookieStore.get('cg_token')?.value;
+  const isLoggedIn = Boolean(token);
 
   if (token) {
     try {

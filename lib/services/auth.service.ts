@@ -142,27 +142,36 @@ export async function verifyFirebaseTokenAndUpsertUser(
   );
 
   if (existingResult.rowCount && existingResult.rowCount > 0) {
+    const existingUser = existingResult.rows[0];
+
+    // Ensure admin user has admin role
+    if ((existingUser.username === 'admin' || existingUser.email.startsWith('admin')) && existingUser.role !== 'admin') {
+      await query(`UPDATE users SET role = 'admin' WHERE id = $1`, [existingUser.id]);
+      existingUser.role = 'admin';
+    }
+
     // Update last_login_at asynchronously (no await — non-critical)
     query('UPDATE users SET last_login_at = now() WHERE id = $1', [
-      existingResult.rows[0].id,
+      existingUser.id,
     ]).catch(() => {});
 
-    return existingResult.rows[0];
+    return existingUser;
   }
 
   // 4. First sign-in — create user + profile atomically
   const baseSlug = slugify(firebaseEmail);
   const username = await ensureUniqueUsername(baseSlug);
+  const initialRole = (username === 'admin' || firebaseEmail.startsWith('admin')) ? 'admin' : 'student';
 
   const newUser = await withTransaction(async (client) => {
     const userRow = await client.query<PlatformUser>(
       `INSERT INTO users
          (email, username, profile_slug, role, firebase_uid, avatar_url,
           email_verified, last_login_at)
-       VALUES ($1, $2, $2, 'student', $3, $4, TRUE, now())
+       VALUES ($1, $2, $2, $3, $4, $5, TRUE, now())
        RETURNING id, email, username, profile_slug, role, firebase_uid,
                  avatar_url, is_onboarded, onboarding_step, xp, campus_score`,
-      [firebaseEmail, username, firebaseUid, firebaseAvatar]
+      [firebaseEmail, username, initialRole, firebaseUid, firebaseAvatar]
     );
 
     const user = userRow.rows[0];
