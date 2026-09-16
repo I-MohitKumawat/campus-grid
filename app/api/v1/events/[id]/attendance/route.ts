@@ -38,6 +38,5 @@ export const POST = withAuth(
       if (err instanceof AppError) return errorResponse(err.message, err.statusCode, err.code);
       return errorResponse('Failed to mark attendance.', 500);
     }
-  },
-  ['club_lead', 'faculty', 'admin']
+  }
 );

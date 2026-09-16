@@ -11,11 +11,11 @@
 import { useState, useEffect, Suspense } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { 
-  Mail, 
-  Lock, 
-  ArrowRight, 
-  CheckCircle, 
+import {
+  Mail,
+  Lock,
+  ArrowRight,
+  CheckCircle,
   AlertTriangle,
   Fingerprint,
   UserCheck,
@@ -25,7 +25,7 @@ import {
 
 function SignInForm() {
   const router = useRouter();
-  
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -66,7 +66,7 @@ function SignInForm() {
     setInfo('');
 
     const trimmedEmail = email.trim();
-    
+
     // 1. Validation: Empty email
     if (!trimmedEmail) {
       setError('Email is required.');
@@ -127,7 +127,7 @@ function SignInForm() {
       }
 
       setSuccess(true);
-      
+
       setTimeout(() => {
         router.push('/dashboard');
         router.refresh();
@@ -199,7 +199,7 @@ function SignInForm() {
 
       {/* Main Container */}
       <div className="w-full max-w-md">
-        
+
         {/* Header Logo */}
         <div className="flex flex-col items-center mb-8 text-center">
           <Link href="/" className="flex items-center gap-2.5 group mb-4">
@@ -225,9 +225,9 @@ function SignInForm() {
 
         {/* Card Form */}
         <div className="relative rounded-[28px] border border-zinc-200/80 bg-white p-6 shadow-2xl shadow-zinc-200/40 transition-all duration-300 dark:border-zinc-850 dark:bg-zinc-900/35 dark:shadow-none sm:p-8">
-          
+
           <form onSubmit={handleSubmit} className="space-y-5" noValidate>
-            
+
             {/* Error Message */}
             {error && (
               <div className="flex items-start gap-2.5 rounded-xl bg-rose-50 border border-rose-100 p-3.5 text-xs font-semibold text-rose-600 dark:bg-rose-950/20 dark:border-rose-900/40 dark:text-rose-400 animate-fadeIn">
@@ -318,38 +318,70 @@ function SignInForm() {
 
           {/* Quick Login Section (Only visible in development environment) */}
           {isDev && (
-            <div className="mt-8 pt-6 border-t border-zinc-150 dark:border-zinc-800/80">
-              <p className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-widest text-center mb-3 flex items-center justify-center gap-1">
+            <div className="mt-8 pt-6 border-t border-zinc-150 dark:border-zinc-800/80 space-y-3.5">
+              <p className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-widest text-center flex items-center justify-center gap-1.5">
                 <Fingerprint className="h-3.5 w-3.5 text-accent" /> Developer Testing Credentials
               </p>
-              <div className="grid grid-cols-3 gap-2">
-                <button
-                  type="button"
-                  onClick={() => handleQuickLogin('admin')}
-                  disabled={loading || success}
-                  className="flex items-center justify-center gap-1.5 rounded-xl border border-rose-500/30 bg-rose-950/30 text-rose-300 hover:bg-rose-900/40 px-2 py-2 text-xs font-bold cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <ShieldCheck className="h-3.5 w-3.5 text-rose-400" />
-                  Admin
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleQuickLogin('arjun')}
-                  disabled={loading || success}
-                  className="flex items-center justify-center gap-1.5 rounded-xl border border-zinc-200 bg-zinc-50 px-2 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <UserCheck className="h-3.5 w-3.5 text-accent" />
-                  Arjun
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleQuickLogin('riya')}
-                  disabled={loading || success}
-                  className="flex items-center justify-center gap-1.5 rounded-xl border border-zinc-200 bg-zinc-50 px-2 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <UserCheck className="h-3.5 w-3.5 text-accent" />
-                  Riya
-                </button>
+
+              {/* Leadership & Staff */}
+              <div className="space-y-1.5">
+                <span className="text-[9px] font-extrabold uppercase tracking-wider text-zinc-400">Admin & Club Leads</span>
+                <div className="grid grid-cols-3 gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => handleQuickLogin('admin')}
+                    disabled={loading || success}
+                    className="flex items-center justify-center gap-1 rounded-xl border border-rose-500/30 bg-rose-950/20 text-rose-300 hover:bg-rose-900/40 px-2 py-2 text-xs font-bold transition-all cursor-pointer disabled:opacity-50"
+                  >
+                    <ShieldCheck className="h-3.5 w-3.5 text-rose-400 shrink-0" />
+                    <span className="truncate">Admin</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleQuickLogin('robotics_lead')}
+                    disabled={loading || success}
+                    className="flex items-center justify-center gap-1 rounded-xl border border-amber-500/30 bg-amber-950/20 text-amber-300 hover:bg-amber-900/40 px-2 py-2 text-xs font-bold transition-all cursor-pointer disabled:opacity-50"
+                  >
+                    <UserCheck className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+                    <span className="truncate">Robotics Lead</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleQuickLogin('ieee_lead')}
+                    disabled={loading || success}
+                    className="flex items-center justify-center gap-1 rounded-xl border border-amber-500/30 bg-amber-950/20 text-amber-300 hover:bg-amber-900/40 px-2 py-2 text-xs font-bold transition-all cursor-pointer disabled:opacity-50"
+                  >
+                    <UserCheck className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+                    <span className="truncate">IEEE Lead</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Students */}
+              <div className="space-y-1.5">
+                <span className="text-[9px] font-extrabold uppercase tracking-wider text-zinc-400">Campus Students</span>
+                <div className="grid grid-cols-4 gap-1.5">
+                  {[
+                    { username: 'arjun', name: 'Arjun' },
+                    { username: 'riya', name: 'Riya' },
+                    { username: 'vikram', name: 'Vikram' },
+                    { username: 'ananya', name: 'Ananya' },
+                    { username: 'karan', name: 'Karan' },
+                    { username: 'meera', name: 'Meera' },
+                    { username: 'siddharth', name: 'Siddharth' },
+                    { username: 'tanvi', name: 'Tanvi' },
+                  ].map((s) => (
+                    <button
+                      key={s.username}
+                      type="button"
+                      onClick={() => handleQuickLogin(s.username)}
+                      disabled={loading || success}
+                      className="flex items-center justify-center rounded-xl border border-zinc-200 bg-zinc-50 px-2 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900/60 dark:text-zinc-300 dark:hover:bg-zinc-800 transition-all cursor-pointer disabled:opacity-50"
+                    >
+                      <span className="truncate">{s.name}</span>
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
           )}

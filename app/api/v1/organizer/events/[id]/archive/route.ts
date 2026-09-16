@@ -14,7 +14,7 @@ export async function POST(
   const { id } = await params;
   return withAuth(async (_r, _ctx, user) => {
     try {
-      const result = await archiveEvent(id, user.sub);
+      const result = await archiveEvent(id, user.sub, user.role);
       return successResponse(result);
     } catch (err) {
       if (err instanceof AppError) return errorResponse(err.message, err.statusCode, err.code);

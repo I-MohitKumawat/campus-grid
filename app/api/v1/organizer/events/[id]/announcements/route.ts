@@ -14,13 +14,15 @@ export async function POST(
   const { id } = await params;
   return withAuth(async (r, _ctx, user) => {
     try {
-      const body = await r.json();
-      const { title, message } = body;
-      if (!title || !message) {
-        return errorResponse('Title and message are required for announcements.', 400);
+      let body: any = {};
+      try {
+        body = await r.json();
+      } catch {
+        body = {};
       }
+      const { title, message } = body || {};
 
-      const result = await broadcastAnnouncement(id, user.sub, title, message);
+      const result = await broadcastAnnouncement(id, user.sub, user.role, title, message);
       return successResponse(result);
     } catch (err) {
       if (err instanceof AppError) return errorResponse(err.message, err.statusCode, err.code);

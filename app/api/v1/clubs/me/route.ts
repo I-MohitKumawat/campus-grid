@@ -20,6 +20,5 @@ export const GET = withAuth(
       console.error('[GET /clubs/me]', err);
       return errorResponse('Failed to load your club.', 500);
     }
-  },
-  ['club_lead', 'admin']
+  }
 );

@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 
 import { useAuth } from '@/components/providers/AuthProvider';
+import { can } from '@/lib/permissions';
 
 export default function DashboardNavbar({ user: propsUser, onLogout: propsLogout }) {
   const pathname = usePathname();
@@ -36,18 +37,18 @@ export default function DashboardNavbar({ user: propsUser, onLogout: propsLogout
   const onLogout = propsLogout || authLogout;
   const [dropdownOpen, setDropdownOpen] = useState(false);
 
-  // Capsule Navigation Items — Only Complete MVP Routes
+  // Unified Product Capsule Navigation
   const navItems = [
     { name: 'Dashboard', href: '/dashboard', icon: Home },
     { name: 'Events', href: '/dashboard/events', icon: Calendar },
     { name: 'Clubs', href: '/dashboard/clubs', icon: Users },
   ];
 
-  if (user?.role === 'admin' || user?.role === 'club_lead' || user?.role === 'faculty') {
+  if (can('event:create', user)) {
     navItems.push({ name: 'Event Studio', href: '/dashboard/event-studio', icon: Terminal });
   }
 
-  if (user?.role === 'admin') {
+  if (can('admin:access', user)) {
     navItems.push({ name: 'Admin Console', href: '/dashboard/admin', icon: ShieldCheck });
   }
 

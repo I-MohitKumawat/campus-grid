@@ -824,14 +824,13 @@ export default function StudentProfilePage() {
                     </div>
 
                     {crt.verification_token && (
-                      <a
-                        href={`/api/v1/certificates/verify/${crt.verification_token}`}
+                      <Link
+                        href={`/certificates/verify/${crt.verification_token}`}
                         target="_blank"
-                        rel="noreferrer"
                         className="inline-flex items-center gap-1.5 text-xs font-bold text-accent hover:underline pt-2"
                       >
                         Verify Credential Token &rarr;
-                      </a>
+                      </Link>
                     )}
                   </div>
                 ))}

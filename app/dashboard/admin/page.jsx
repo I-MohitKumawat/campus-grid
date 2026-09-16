@@ -89,13 +89,13 @@ export default function AdminDashboardPage() {
         {/* Quick Operations Actions */}
         <div className="flex items-center gap-3 shrink-0">
           <Link
-            href="/dashboard/admin/clubs"
+            href="/dashboard/clubs"
             className="px-4 py-2.5 rounded-xl bg-accent hover:bg-accent/90 text-white font-bold text-xs shadow-md inline-flex items-center gap-2"
           >
             <Plus className="h-4 w-4" /> Create Club
           </Link>
           <Link
-            href="/dashboard/admin/events"
+            href="/dashboard/event-studio/events/new"
             className="px-4 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-xs font-bold text-zinc-200 hover:text-white inline-flex items-center gap-2"
           >
             <Plus className="h-4 w-4" /> Create Event
@@ -160,8 +160,8 @@ export default function AdminDashboardPage() {
             <h3 className="font-extrabold text-sm text-white flex items-center gap-2">
               <FileText className="h-4 w-4 text-accent" /> Recent Event Submissions
             </h3>
-            <Link href="/dashboard/admin/events" className="text-xs font-bold text-accent hover:underline">
-              Manage All Events &rarr;
+            <Link href="/dashboard/event-studio" className="text-xs font-bold text-accent hover:underline">
+              Manage in Event Studio &rarr;
             </Link>
           </div>
 
@@ -179,7 +179,7 @@ export default function AdminDashboardPage() {
                   </div>
 
                   <Link
-                    href={`/dashboard/admin/events`}
+                    href="/dashboard/event-studio"
                     className="px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-xs font-bold text-zinc-200 transition-colors"
                   >
                     Action &rarr;
@@ -197,23 +197,23 @@ export default function AdminDashboardPage() {
         {/* Operational Quick Links */}
         <div className="rounded-3xl border border-zinc-900 bg-zinc-900/20 backdrop-blur-xl p-6 space-y-4 shadow-xl">
           <h3 className="font-extrabold text-sm text-white flex items-center gap-2">
-            <ShieldCheck className="h-4 w-4 text-violet-400" /> Admin Shortcuts
+            <ShieldCheck className="h-4 w-4 text-violet-400" /> Platform Shortcuts
           </h3>
 
           <div className="space-y-3 text-xs">
             <Link
-              href="/dashboard/admin/clubs"
+              href="/dashboard/clubs"
               className="flex items-center justify-between p-3.5 rounded-2xl bg-zinc-900/60 hover:bg-zinc-900 border border-zinc-800 text-zinc-200 hover:text-white transition-all"
             >
-              <span className="font-bold flex items-center gap-2"><Users className="h-4 w-4 text-accent" /> Manage Campus Clubs</span>
+              <span className="font-bold flex items-center gap-2"><Users className="h-4 w-4 text-accent" /> Campus Clubs Hub</span>
               <ArrowRight className="h-3.5 w-3.5 text-zinc-500" />
             </Link>
 
             <Link
-              href="/dashboard/admin/events"
+              href="/dashboard/event-studio"
               className="flex items-center justify-between p-3.5 rounded-2xl bg-zinc-900/60 hover:bg-zinc-900 border border-zinc-800 text-zinc-200 hover:text-white transition-all"
             >
-              <span className="font-bold flex items-center gap-2"><Calendar className="h-4 w-4 text-violet-400" /> Publish & Audit Events</span>
+              <span className="font-bold flex items-center gap-2"><Calendar className="h-4 w-4 text-violet-400" /> Event Studio Operations</span>
               <ArrowRight className="h-3.5 w-3.5 text-zinc-500" />
             </Link>
 
@@ -221,7 +221,7 @@ export default function AdminDashboardPage() {
               href="/dashboard/admin/users"
               className="flex items-center justify-between p-3.5 rounded-2xl bg-zinc-900/60 hover:bg-zinc-900 border border-zinc-800 text-zinc-200 hover:text-white transition-all"
             >
-              <span className="font-bold flex items-center gap-2"><UserCheck className="h-4 w-4 text-emerald-400" /> Assign User Roles</span>
+              <span className="font-bold flex items-center gap-2"><UserCheck className="h-4 w-4 text-emerald-400" /> User & Role Governance</span>
               <ArrowRight className="h-3.5 w-3.5 text-zinc-500" />
             </Link>
 
@@ -229,7 +229,7 @@ export default function AdminDashboardPage() {
               href="/dashboard/admin/certificates"
               className="flex items-center justify-between p-3.5 rounded-2xl bg-zinc-900/60 hover:bg-zinc-900 border border-zinc-800 text-zinc-200 hover:text-white transition-all"
             >
-              <span className="font-bold flex items-center gap-2"><Award className="h-4 w-4 text-amber-400" /> Verify Credentials</span>
+              <span className="font-bold flex items-center gap-2"><Award className="h-4 w-4 text-amber-400" /> Certificate Registry</span>
               <ArrowRight className="h-3.5 w-3.5 text-zinc-500" />
             </Link>
           </div>

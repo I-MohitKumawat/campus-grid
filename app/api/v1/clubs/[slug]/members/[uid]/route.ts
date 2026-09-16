@@ -36,14 +36,13 @@ export const PATCH = withAuth(
 
     try {
       const club = await getClubBySlug(slug);
-      await updateClubMember(club.id as string, uid, user.sub, parsed.data);
+      await updateClubMember(club.id as string, uid, user.sub, user.role, parsed.data);
       return successResponse({ message: 'Member updated.' });
     } catch (err) {
       if (err instanceof AppError) return errorResponse(err.message, err.statusCode, err.code);
       return errorResponse('Failed to update member.', 500);
     }
-  },
-  ['club_lead']
+  }
 );
 
 export const DELETE = withAuth(
@@ -52,12 +51,11 @@ export const DELETE = withAuth(
 
     try {
       const club = await getClubBySlug(slug);
-      await removeClubMember(club.id as string, uid, user.sub);
+      await removeClubMember(club.id as string, uid, user.sub, user.role);
       return successResponse({ message: 'Member removed.' });
     } catch (err) {
       if (err instanceof AppError) return errorResponse(err.message, err.statusCode, err.code);
       return errorResponse('Failed to remove member.', 500);
     }
-  },
-  ['club_lead']
+  }
 );

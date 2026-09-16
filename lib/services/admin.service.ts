@@ -22,11 +22,11 @@ export async function getAdminDashboardOverview() {
   ] = await Promise.all([
     query(`SELECT COUNT(*) FROM clubs WHERE deleted_at IS NULL`),
     query(`SELECT COUNT(*) FROM events WHERE deleted_at IS NULL`),
-    query(`SELECT COUNT(*) FROM events WHERE status IN ('draft', 'submitted', 'pending_approval') AND deleted_at IS NULL`),
-    query(`SELECT COUNT(*) FROM events WHERE start_time::date = CURRENT_DATE AND deleted_at IS NULL`),
+    query(`SELECT COUNT(*) FROM events WHERE status IN ('draft', 'pending_faculty', 'pending_admin') AND deleted_at IS NULL`),
+    query(`SELECT COUNT(*) FROM events WHERE COALESCE(start_time, event_date)::date = CURRENT_DATE AND deleted_at IS NULL`),
     query(`SELECT COUNT(*) FROM users WHERE deleted_at IS NULL`),
     query(`SELECT COUNT(*) FROM certificates`),
-    query(`SELECT id, title, status, created_at, start_time FROM events WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT 5`)
+    query(`SELECT id, title, status, created_at, COALESCE(start_time, event_date) as start_time FROM events WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT 5`)
   ]);
 
   return {
@@ -42,16 +42,26 @@ export async function getAdminDashboardOverview() {
 
 // ── 2. Club Operations ───────────────────────────────────────────────────────
 
-export async function getAllClubsAdmin(search?: string, category?: string) {
+export async function getAllClubsAdmin(search?: string, category?: string, status?: 'active' | 'archived' | 'all') {
   let sql = `
-    SELECT c.id, c.name, c.slug, c.description, c.category, c.logo_url, c.is_active, c.created_at,
+    SELECT c.id, c.name, c.slug, c.description, c.category, c.type, c.logo_url, c.banner_url,
+           c.is_active, c.archived_at, c.created_at, c.updated_at,
            (SELECT COUNT(*) FROM club_memberships cm WHERE cm.club_id = c.id AND cm.status = 'active') as member_count,
-           (SELECT u.username FROM club_memberships cm JOIN users u ON u.id = cm.user_id WHERE cm.club_id = c.id AND cm.role = 'lead' LIMIT 1) as lead_username,
-           (SELECT u.id FROM club_memberships cm JOIN users u ON u.id = cm.user_id WHERE cm.club_id = c.id AND cm.role = 'lead' LIMIT 1) as lead_user_id
+           (SELECT COUNT(*) FROM events e WHERE e.club_id = c.id) as event_count,
+           (SELECT u.username FROM club_memberships cm JOIN users u ON u.id = cm.user_id WHERE cm.club_id = c.id AND cm.role = 'president' LIMIT 1) as lead_username,
+           (SELECT p.full_name FROM club_memberships cm JOIN users u ON u.id = cm.user_id LEFT JOIN profiles p ON p.user_id = u.id WHERE cm.club_id = c.id AND cm.role = 'president' LIMIT 1) as lead_full_name,
+           COALESCE((SELECT u.id FROM club_memberships cm JOIN users u ON u.id = cm.user_id WHERE cm.club_id = c.id AND cm.role = 'president' LIMIT 1), c.lead_user_id) as lead_user_id,
+           (SELECT u_arch.username FROM users u_arch WHERE u_arch.id = c.archived_by) as archived_by_username
     FROM clubs c
     WHERE c.deleted_at IS NULL
   `;
   const params: any[] = [];
+
+  if (status === 'active') {
+    sql += ` AND c.archived_at IS NULL AND c.is_active = TRUE`;
+  } else if (status === 'archived') {
+    sql += ` AND c.archived_at IS NOT NULL`;
+  }
 
   if (search) {
     params.push(`%${search}%`);
@@ -63,7 +73,7 @@ export async function getAllClubsAdmin(search?: string, category?: string) {
     sql += ` AND c.category = $${params.length}`;
   }
 
-  sql += ` ORDER BY c.created_at DESC`;
+  sql += ` ORDER BY COALESCE(c.archived_at, c.created_at) DESC`;
 
   const res = await query(sql, params);
   return res.rows;
@@ -71,83 +81,211 @@ export async function getAllClubsAdmin(search?: string, category?: string) {
 
 export async function createClubAdmin(input: {
   name: string;
-  slug?: string;
-  description?: string;
-  category?: string;
-  logo_url?: string;
-  lead_user_id?: string;
+  slug?: string | null;
+  description?: string | null;
+  type?: string | null;
+  category?: string | null;
+  logo_url?: string | null;
+  banner_url?: string | null;
+  domain_tags?: string[];
+  social_links?: Record<string, any>;
+  visibility?: 'public' | 'campus_only' | 'invite_only';
+  recruitment_open?: boolean;
+  lead_user_id?: string | null;
 }) {
-  const slug = input.slug || input.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+  const generatedSlug = (input.slug || input.name)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)/g, '')
+    .slice(0, 80);
+
+  const categoryValue = input.category || input.type || 'Technical';
+  const typeValue = input.type || input.category || 'Technical';
+  const domainTags = Array.isArray(input.domain_tags) ? input.domain_tags : [];
+  const socialLinks = input.social_links && typeof input.social_links === 'object' ? JSON.stringify(input.social_links) : '{}';
+  const visibilityValue = input.visibility || 'public';
+  const recruitmentOpen = input.recruitment_open !== undefined ? input.recruitment_open : false;
+  const leadUserId = input.lead_user_id && input.lead_user_id.trim() ? input.lead_user_id : null;
 
   const res = await query(
-    `INSERT INTO clubs (name, slug, description, category, logo_url, is_active)
-     VALUES ($1, $2, $3, $4, $5, TRUE)
+    `INSERT INTO clubs (
+       name, slug, description, type, category, logo_url, banner_url,
+       domain_tags, social_links, visibility, recruitment_open, is_active,
+       lead_user_id, member_count, verification_status
+     )
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, TRUE, $12, $13, 'approved')
      RETURNING *`,
-    [input.name, slug, input.description || null, input.category || 'General', input.logo_url || null]
+    [
+      input.name.trim(),
+      generatedSlug,
+      input.description || null,
+      typeValue,
+      categoryValue,
+      input.logo_url || null,
+      input.banner_url || null,
+      domainTags,
+      socialLinks,
+      visibilityValue,
+      recruitmentOpen,
+      leadUserId,
+      leadUserId ? 1 : 0
+    ]
   );
 
   const club = res.rows[0];
 
-  // Assign Club Lead if provided
-  if (input.lead_user_id) {
+  // Assign Club President if provided
+  if (leadUserId) {
     await query(
-      `INSERT INTO club_memberships (club_id, user_id, role, status)
-       VALUES ($1, $2, 'lead', 'active')
-       ON CONFLICT (club_id, user_id) DO UPDATE SET role = 'lead', status = 'active'`,
-      [club.id, input.lead_user_id]
-    );
-
-    // Promote user role to club_lead if currently student
-    await query(
-      `UPDATE users SET role = 'club_lead' WHERE id = $1 AND role = 'student'`,
-      [input.lead_user_id]
+      `INSERT INTO club_memberships (club_id, user_id, role, status, posting_access)
+       VALUES ($1, $2, 'president', 'active', TRUE)
+       ON CONFLICT (club_id, user_id) DO UPDATE SET role = 'president', status = 'active', posting_access = TRUE`,
+      [club.id, leadUserId]
     );
   }
 
-  return club;
+  const details = await query(
+    `SELECT c.id, c.name, c.slug, c.description, c.type, c.category, c.logo_url, c.banner_url,
+            c.domain_tags, c.social_links, c.visibility, c.recruitment_open, c.is_active,
+            c.verification_status, c.created_at, c.updated_at,
+            (SELECT COUNT(*) FROM club_memberships cm WHERE cm.club_id = c.id AND cm.status = 'active') as member_count,
+            (SELECT u.username FROM club_memberships cm JOIN users u ON u.id = cm.user_id WHERE cm.club_id = c.id AND cm.role = 'president' LIMIT 1) as lead_username,
+            (SELECT p.full_name FROM club_memberships cm JOIN users u ON u.id = cm.user_id LEFT JOIN profiles p ON p.user_id = u.id WHERE cm.club_id = c.id AND cm.role = 'president' LIMIT 1) as lead_full_name,
+            COALESCE((SELECT u.id FROM club_memberships cm JOIN users u ON u.id = cm.user_id WHERE cm.club_id = c.id AND cm.role = 'president' LIMIT 1), c.lead_user_id) as lead_user_id
+     FROM clubs c
+     WHERE c.id = $1`,
+    [club.id]
+  );
+
+  return details.rows[0] || club;
 }
 
 export async function updateClubAdmin(clubId: string, input: {
   name?: string;
-  description?: string;
+  slug?: string;
+  type?: string;
   category?: string;
-  logo_url?: string;
+  description?: string | null;
+  logo_url?: string | null;
+  banner_url?: string | null;
+  domain_tags?: string[];
+  social_links?: Record<string, any>;
+  visibility?: 'public' | 'campus_only' | 'invite_only';
+  recruitment_open?: boolean;
   is_active?: boolean;
-  lead_user_id?: string;
+  lead_user_id?: string | null;
 }) {
   const existing = await query(`SELECT id FROM clubs WHERE id = $1 AND deleted_at IS NULL`, [clubId]);
-  if (!existing.rowCount) throw new NotFoundError('Club not found.');
-
-  await query(
-    `UPDATE clubs
-     SET name = COALESCE($1, name),
-         description = COALESCE($2, description),
-         category = COALESCE($3, category),
-         logo_url = COALESCE($4, logo_url),
-         is_active = COALESCE($5, is_active),
-         updated_at = now()
-     WHERE id = $6`,
-    [input.name || null, input.description || null, input.category || null, input.logo_url || null, input.is_active !== undefined ? input.is_active : null, clubId]
-  );
-
-  if (input.lead_user_id) {
-    // Reset existing leads for this club
-    await query(`UPDATE club_memberships SET role = 'member' WHERE club_id = $1 AND role = 'lead'`, [clubId]);
-    await query(
-      `INSERT INTO club_memberships (club_id, user_id, role, status)
-       VALUES ($1, $2, 'lead', 'active')
-       ON CONFLICT (club_id, user_id) DO UPDATE SET role = 'lead', status = 'active'`,
-      [clubId, input.lead_user_id]
-    );
-    await query(`UPDATE users SET role = 'club_lead' WHERE id = $1 AND role = 'student'`, [input.lead_user_id]);
+  if (!existing.rowCount || existing.rowCount === 0) {
+    throw new NotFoundError('Club');
   }
 
-  const updated = await query(`SELECT * FROM clubs WHERE id = $1`, [clubId]);
+  const updates: string[] = [];
+  const values: any[] = [];
+  let paramIdx = 1;
+
+  if (input.name !== undefined) {
+    updates.push(`name = $${paramIdx++}`);
+    values.push(input.name.trim());
+  }
+  if (input.slug !== undefined) {
+    updates.push(`slug = $${paramIdx++}`);
+    values.push(input.slug.trim());
+  }
+  if (input.type !== undefined) {
+    updates.push(`type = $${paramIdx++}`);
+    values.push(input.type);
+  }
+  if (input.category !== undefined) {
+    updates.push(`category = $${paramIdx++}`);
+    values.push(input.category);
+  }
+  if (input.description !== undefined) {
+    updates.push(`description = $${paramIdx++}`);
+    values.push(input.description);
+  }
+  if (input.logo_url !== undefined) {
+    updates.push(`logo_url = $${paramIdx++}`);
+    values.push(input.logo_url);
+  }
+  if (input.banner_url !== undefined) {
+    updates.push(`banner_url = $${paramIdx++}`);
+    values.push(input.banner_url);
+  }
+  if (input.domain_tags !== undefined) {
+    updates.push(`domain_tags = $${paramIdx++}`);
+    values.push(input.domain_tags);
+  }
+  if (input.social_links !== undefined) {
+    updates.push(`social_links = $${paramIdx++}::jsonb`);
+    values.push(JSON.stringify(input.social_links));
+  }
+  if (input.visibility !== undefined) {
+    updates.push(`visibility = $${paramIdx++}`);
+    values.push(input.visibility);
+  }
+  if (input.recruitment_open !== undefined) {
+    updates.push(`recruitment_open = $${paramIdx++}`);
+    values.push(input.recruitment_open);
+  }
+  if (input.is_active !== undefined) {
+    updates.push(`is_active = $${paramIdx++}`);
+    values.push(input.is_active);
+  }
+
+  const leadUserId = input.lead_user_id ? input.lead_user_id : (input.lead_user_id === '' ? null : undefined);
+  if (leadUserId !== undefined) {
+    updates.push(`lead_user_id = $${paramIdx++}`);
+    values.push(leadUserId);
+  }
+
+  updates.push(`updated_at = now()`);
+
+  values.push(clubId);
+  await query(
+    `UPDATE clubs
+     SET ${updates.join(', ')}
+     WHERE id = $${paramIdx}`,
+    values
+  );
+
+  if (leadUserId) {
+    // Reset existing presidents for this club
+    await query(`UPDATE club_memberships SET role = 'member' WHERE club_id = $1 AND role = 'president'`, [clubId]);
+    await query(
+      `INSERT INTO club_memberships (club_id, user_id, role, status, posting_access)
+       VALUES ($1, $2, 'president', 'active', TRUE)
+       ON CONFLICT (club_id, user_id) DO UPDATE SET role = 'president', status = 'active', posting_access = TRUE`,
+      [clubId, leadUserId]
+    );
+  }
+
+  const updated = await query(
+    `SELECT c.id, c.name, c.slug, c.description, c.type, c.category, c.logo_url, c.banner_url,
+            c.domain_tags, c.social_links, c.visibility, c.recruitment_open, c.is_active,
+            c.verification_status, c.created_at, c.updated_at,
+            (SELECT COUNT(*) FROM club_memberships cm WHERE cm.club_id = c.id AND cm.status = 'active') as member_count,
+            (SELECT u.username FROM club_memberships cm JOIN users u ON u.id = cm.user_id WHERE cm.club_id = c.id AND cm.role = 'president' LIMIT 1) as lead_username,
+            (SELECT p.full_name FROM club_memberships cm JOIN users u ON u.id = cm.user_id LEFT JOIN profiles p ON p.user_id = u.id WHERE cm.club_id = c.id AND cm.role = 'president' LIMIT 1) as lead_full_name,
+            COALESCE((SELECT u.id FROM club_memberships cm JOIN users u ON u.id = cm.user_id WHERE cm.club_id = c.id AND cm.role = 'president' LIMIT 1), c.lead_user_id) as lead_user_id
+     FROM clubs c
+     WHERE c.id = $1`,
+    [clubId]
+  );
+
   return updated.rows[0];
 }
 
-export async function archiveClubAdmin(clubId: string) {
-  await query(`UPDATE clubs SET deleted_at = now(), is_active = FALSE WHERE id = $1`, [clubId]);
+export async function archiveClubAdmin(clubId: string, adminUserId?: string) {
+  await query(
+    `UPDATE clubs
+     SET archived_at = now(),
+         archived_by = COALESCE($1, archived_by),
+         is_active = FALSE,
+         updated_at = now()
+     WHERE id = $2`,
+    [adminUserId || null, clubId]
+  );
   return { success: true };
 }
 
@@ -155,7 +293,7 @@ export async function archiveClubAdmin(clubId: string) {
 
 export async function getAllEventsAdmin(status?: string, search?: string) {
   let sql = `
-    SELECT e.id, e.title, e.description, e.event_type, e.status, e.start_time, e.end_time,
+    SELECT e.id, e.title, e.description, e.event_type, e.status, COALESCE(e.start_time, e.event_date) as start_time, e.end_time,
            e.venue, e.capacity, e.created_at, e.published_at, c.name as club_name, c.slug as club_slug,
            (SELECT COUNT(*) FROM event_registrations er WHERE er.event_id = e.id AND er.status IN ('registered', 'attended')) as registration_count
     FROM events e
@@ -222,7 +360,7 @@ export async function getAllUsersAdmin(search?: string, role?: string) {
   return res.rows;
 }
 
-export async function updateUserRoleAdmin(userId: string, newRole: 'student' | 'club_lead' | 'faculty' | 'admin') {
+export async function updateUserRoleAdmin(userId: string, newRole: 'student' | 'faculty' | 'admin' | 'alumni') {
   const res = await query(`UPDATE users SET role = $1, updated_at = now() WHERE id = $2 RETURNING id, username, role`, [newRole, userId]);
   if (!res.rowCount) throw new NotFoundError('User not found.');
   return res.rows[0];
@@ -232,12 +370,19 @@ export async function updateUserRoleAdmin(userId: string, newRole: 'student' | '
 
 export async function getAllCertificatesAdmin() {
   const res = await query(
-    `SELECT c.id, c.title, c.verification_token, c.issued_at, u.username, p.full_name, e.title as event_title
+    `SELECT c.id, c.certificate_type, c.verification_token, c.issued_at,
+            u.username, p.full_name, e.title as event_title, cl.name as club_name
      FROM certificates c
      JOIN users u ON u.id = c.user_id
      LEFT JOIN profiles p ON p.user_id = u.id
      LEFT JOIN events e ON e.id = c.event_id
+     LEFT JOIN clubs cl ON cl.id = e.club_id
      ORDER BY c.issued_at DESC`
   );
-  return res.rows;
+  return res.rows.map((c) => ({
+    ...c,
+    title: c.certificate_type
+      ? `Certificate of ${c.certificate_type.charAt(0).toUpperCase() + c.certificate_type.slice(1).replace('_', ' ')}`
+      : 'Certificate of Participation',
+  }));
 }

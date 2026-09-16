@@ -32,10 +32,12 @@ import {
   ChevronRight,
   ShieldCheck,
   Building2,
-  Lock
+  Lock,
+  XCircle
 } from 'lucide-react';
 import DashboardNavbar from '@/components/layout/DashboardNavbar';
 import { useAuth } from '@/components/providers/AuthProvider';
+import { can } from '@/lib/permissions';
 
 export default function OrganizerDashboardPage() {
   const router = useRouter();
@@ -125,6 +127,29 @@ export default function OrganizerDashboardPage() {
     }
   };
 
+  const handleCancelEvent = async (eventId, reason) => {
+    setActionLoading(true);
+    setConfirmModal(null);
+    try {
+      const res = await fetch(`/api/v1/organizer/events/${eventId}/cancel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: reason || 'Organizer requested event cancellation.' })
+      });
+      const json = await res.json().catch(() => null);
+      if (res.ok && json?.success) {
+        setFeedback({ type: 'success', msg: 'Event cancelled. All registered attendees have been notified.' });
+        fetchOrganizerEvents();
+      } else {
+        setFeedback({ type: 'error', msg: json?.error?.message || json?.error || 'Failed to cancel event.' });
+      }
+    } catch {
+      setFeedback({ type: 'error', msg: 'Server error cancelling event.' });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   // Filter events by tab
   const filteredEvents = events.filter((ev) => {
     if (activeTab === 'all') return true;
@@ -132,12 +157,13 @@ export default function OrganizerDashboardPage() {
     if (activeTab === 'pending') return ev.status === 'pending_faculty' || ev.status === 'pending_admin';
     if (activeTab === 'published') return ev.status === 'published';
     if (activeTab === 'completed') return ev.status === 'completed';
+    if (activeTab === 'cancelled') return ev.status === 'cancelled';
     if (activeTab === 'archived') return ev.archived_at != null;
     return true;
   });
 
   // Permission Check
-  const isOrganizer = user && ['admin', 'club_lead', 'faculty'].includes(user.role);
+  const isOrganizer = user && can('event:create', user);
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 relative overflow-hidden pb-24">
@@ -155,7 +181,7 @@ export default function OrganizerDashboardPage() {
             <Lock className="h-10 w-10 text-rose-500 mx-auto" />
             <h3 className="text-lg font-bold text-white">Organizer Access Required</h3>
             <p className="text-xs text-zinc-400 max-w-md mx-auto">
-              Your current role ({user.role}) does not have event management privileges. Contact your campus administrator or club president to request organizer access.
+              Your current account does not have active event organizer privileges. Contact your campus administrator or club president to request organizer access.
             </p>
           </div>
         ) : (
@@ -201,6 +227,7 @@ export default function OrganizerDashboardPage() {
             { id: 'pending', label: 'Pending Review' },
             { id: 'published', label: 'Published' },
             { id: 'completed', label: 'Completed' },
+            { id: 'cancelled', label: 'Cancelled' },
             { id: 'archived', label: 'Archived' }
           ].map(tab => (
             <button
@@ -372,7 +399,32 @@ export default function OrganizerDashboardPage() {
                         >
                           <Lock className="h-3.5 w-3.5 text-emerald-400" />
                         </Link>
+
+                        <button
+                          onClick={() => setConfirmModal({ type: 'cancel', eventId: event.id, title: event.title })}
+                          className="p-2 rounded-xl bg-zinc-900 hover:bg-rose-600 hover:text-white text-zinc-300 border border-zinc-800 cursor-pointer"
+                          title="Cancel Event"
+                        >
+                          <XCircle className="h-3.5 w-3.5 text-rose-400" />
+                        </button>
                       </div>
+                    </div>
+                  )}
+
+                  {/* Cancelled State Actions */}
+                  {event.status === 'cancelled' && (
+                    <div className="flex items-center justify-between w-full gap-2">
+                      <span className="text-xs text-rose-400 font-bold flex items-center gap-1.5">
+                        <XCircle className="h-3.5 w-3.5" /> Event Cancelled
+                      </span>
+
+                      <button
+                        onClick={() => setConfirmModal({ type: 'archive', eventId: event.id, title: event.title })}
+                        disabled={actionLoading}
+                        className="px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-400 font-bold inline-flex items-center gap-1.5"
+                      >
+                        <Archive className="h-3.5 w-3.5" /> Archive
+                      </button>
                     </div>
                   )}
 
@@ -426,12 +478,14 @@ export default function OrganizerDashboardPage() {
               <h3 className="text-base font-extrabold text-white">
                 {confirmModal.type === 'submit' && 'Submit Event for Approval?'}
                 {confirmModal.type === 'withdraw' && 'Withdraw Submission?'}
-                {confirmModal.type === 'archive' && 'Archive Completed Event?'}
+                {confirmModal.type === 'archive' && 'Archive Event?'}
+                {confirmModal.type === 'cancel' && 'Cancel Event?'}
               </h3>
               <p className="text-xs text-zinc-400">
                 {confirmModal.type === 'submit' && `Are you sure you want to submit "${confirmModal.title}" for faculty review?`}
                 {confirmModal.type === 'withdraw' && `Are you sure you want to withdraw "${confirmModal.title}" back to draft?`}
                 {confirmModal.type === 'archive' && `Archiving "${confirmModal.title}" moves it into the read-only historical registry.`}
+                {confirmModal.type === 'cancel' && `Are you sure you want to cancel "${confirmModal.title}"? All registered attendees will be notified and registrations will be closed.`}
               </p>
               <div className="flex items-center justify-end gap-3 pt-2 border-t border-zinc-800">
                 <button
@@ -445,9 +499,12 @@ export default function OrganizerDashboardPage() {
                     if (confirmModal.type === 'submit') handleSubmitForApproval(confirmModal.eventId);
                     if (confirmModal.type === 'withdraw') handleWithdrawSubmission(confirmModal.eventId);
                     if (confirmModal.type === 'archive') handleArchiveEvent(confirmModal.eventId);
+                    if (confirmModal.type === 'cancel') handleCancelEvent(confirmModal.eventId);
                   }}
                   disabled={actionLoading}
-                  className="px-4 py-2 rounded-xl bg-accent hover:bg-accent/90 text-xs font-bold text-white shadow-md cursor-pointer"
+                  className={`px-4 py-2 rounded-xl text-xs font-bold text-white shadow-md cursor-pointer ${
+                    confirmModal.type === 'cancel' ? 'bg-rose-600 hover:bg-rose-700' : 'bg-accent hover:bg-accent/90'
+                  }`}
                 >
                   Confirm Action
                 </button>

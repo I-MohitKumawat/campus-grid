@@ -23,6 +23,7 @@ export default function EditEventPage({ params }) {
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [feedback, setFeedback] = useState(null);
   const [formData, setFormData] = useState({
     title: '',
     description: '',

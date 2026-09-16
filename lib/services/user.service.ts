@@ -68,25 +68,33 @@ export async function getStudentProfile(userId: string) {
 
   // 3. Fetch auto-populated club organizations
   const clubsRes = await query(
-    `SELECT c.id, c.name, c.slug, c.logo_url, c.category, cm.role, cm.created_at as joined_at
+    `SELECT c.id, c.name, c.slug, c.logo_url, c.category, cm.role, cm.joined_at
      FROM club_memberships cm
      JOIN clubs c ON c.id = cm.club_id
      WHERE cm.user_id = $1 AND cm.status = 'active'
-     ORDER BY cm.created_at DESC`,
+     ORDER BY cm.joined_at DESC`,
     [userId]
   );
   const organizations = clubsRes.rows;
 
   // 4. Fetch system-issued digital certificates
   const certsRes = await query(
-    `SELECT c.id, c.title, c.issued_at, c.verification_token, e.title as event_title, e.id as event_id
+    `SELECT c.id, c.certificate_type, c.issued_at, c.verification_token,
+            e.title as event_title, e.id as event_id, e.event_date,
+            cl.name as club_name
      FROM certificates c
-     LEFT JOIN events e ON e.id = c.event_id
-     WHERE c.user_id = $1
+     JOIN events e ON e.id = c.event_id
+     LEFT JOIN clubs cl ON cl.id = e.club_id
+     WHERE c.user_id = $1 AND c.revoked_at IS NULL
      ORDER BY c.issued_at DESC`,
     [userId]
   );
-  const certificates = certsRes.rows;
+  const certificates = certsRes.rows.map((c) => ({
+    ...c,
+    title: c.certificate_type
+      ? `Certificate of ${c.certificate_type.charAt(0).toUpperCase() + c.certificate_type.slice(1).replace('_', ' ')}`
+      : 'Certificate of Participation',
+  }));
 
   // 5. Build chronological campus timeline from verified system events
   const timeline: Array<{
@@ -122,11 +130,11 @@ export async function getStudentProfile(userId: string) {
 
   // Milestones: Event registrations & Attendances
   const eventLogsRes = await query(
-    `SELECT er.status, er.created_at, er.attended_at, e.title as event_title, e.id as event_id
+    `SELECT er.status, er.registered_at as created_at, er.checked_in_at as attended_at, e.title as event_title, e.id as event_id
      FROM event_registrations er
      JOIN events e ON e.id = er.event_id
      WHERE er.user_id = $1
-     ORDER BY er.created_at DESC`,
+     ORDER BY er.registered_at DESC`,
     [userId]
   );
 
@@ -157,8 +165,8 @@ export async function getStudentProfile(userId: string) {
     timeline.push({
       id: `cert_${crt.id}`,
       category: 'certificate',
-      title: `Earned Certificate: ${crt.title}`,
-      description: `Issued for ${crt.event_title || 'Campus Event'}.`,
+      title: `Earned: ${crt.title}`,
+      description: `Issued for "${crt.event_title || 'Campus Event'}". Token: ${crt.verification_token}`,
       timestamp: crt.issued_at,
       is_highlightable: true
     });

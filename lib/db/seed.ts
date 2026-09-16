@@ -35,8 +35,8 @@ async function seed() {
     connectionString: process.env.DATABASE_URL,
     ssl:
       process.env.DATABASE_URL!.includes('neon.tech') ||
-      process.env.DATABASE_URL!.includes('render.com') ||
-      process.env.DATABASE_URL!.includes('oregon-postgres')
+        process.env.DATABASE_URL!.includes('render.com') ||
+        process.env.DATABASE_URL!.includes('oregon-postgres')
         ? { rejectUnauthorized: false }
         : false,
   });
@@ -66,10 +66,10 @@ async function seed() {
       VALUES ($1, 'System Administrator', 'Information Technology', '1MS20AD001', 'CampusGrid Platform Operations Administrator.');
     `, [adminId]);
 
-    // Club Leads
+    // Club Leads (Platform role = student)
     const ieeeLeadRes = await client.query(`
       INSERT INTO users (email, username, profile_slug, role, firebase_uid, is_onboarded)
-      VALUES ('ieee_lead@college.ac.in', 'ieee_lead', 'ieee_lead', 'club_lead', 'dev-ieee-lead', TRUE)
+      VALUES ('ieee_lead@college.ac.in', 'ieee_lead', 'ieee_lead', 'student', 'dev-ieee-lead', TRUE)
       RETURNING id;
     `);
     const ieeeLeadId = ieeeLeadRes.rows[0].id;
@@ -80,7 +80,7 @@ async function seed() {
 
     const robLeadRes = await client.query(`
       INSERT INTO users (email, username, profile_slug, role, firebase_uid, is_onboarded)
-      VALUES ('robotics_lead@college.ac.in', 'robotics_lead', 'robotics_lead', 'club_lead', 'dev-rob-lead', TRUE)
+      VALUES ('robotics_lead@college.ac.in', 'robotics_lead', 'robotics_lead', 'student', 'dev-rob-lead', TRUE)
       RETURNING id;
     `);
     const robLeadId = robLeadRes.rows[0].id;

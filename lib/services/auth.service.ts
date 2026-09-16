@@ -153,7 +153,7 @@ export async function verifyFirebaseTokenAndUpsertUser(
     // Update last_login_at asynchronously (no await — non-critical)
     query('UPDATE users SET last_login_at = now() WHERE id = $1', [
       existingUser.id,
-    ]).catch(() => {});
+    ]).catch(() => { });
 
     return existingUser;
   }

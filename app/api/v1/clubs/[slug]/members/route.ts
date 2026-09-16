@@ -18,19 +18,19 @@ import { AppError } from '@/lib/errors';
 
 type Params = { slug: string };
 
-// GET — club_lead, faculty, or admin
-export const GET = withAuth(
-  async (_req: NextRequest, ctx: { params: Promise<Params> }, _user) => {
-    const { slug } = await ctx.params;
-    try {
-      const club = await getClubBySlug(slug);
-      const members = await getClubMembers(club.id as string);
-      return successResponse(members);
-    } catch (err) {
-      if (err instanceof AppError) return errorResponse(err.message, err.statusCode, err.code);
-      console.error('[GET /clubs/:slug/members]', err);
-      return errorResponse('Failed to load members.', 500);
-    }
-  },
-  ['club_lead', 'faculty', 'admin']
-);
+// GET — Public member roster for club
+export async function GET(
+  _req: NextRequest,
+  { params }: { params: Promise<Params> }
+) {
+  const { slug } = await params;
+  try {
+    const club = await getClubBySlug(slug);
+    const members = await getClubMembers(club.id as string);
+    return successResponse(members);
+  } catch (err) {
+    if (err instanceof AppError) return errorResponse(err.message, err.statusCode, err.code);
+    console.error('[GET /clubs/:slug/members]', err);
+    return errorResponse('Failed to load members.', 500);
+  }
+}

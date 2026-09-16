@@ -24,7 +24,8 @@ const updateProfileSchema = z.object({
 
 export const GET = withAuth(async (req: NextRequest, ctx: any, user: any) => {
   try {
-    const profileData = await getStudentProfile(user.id);
+    const userId = user.sub || user.id;
+    const profileData = await getStudentProfile(userId);
     return NextResponse.json({
       success: true,
       data: profileData
@@ -49,7 +50,8 @@ export const PATCH = withAuth(async (req: NextRequest, ctx: any, user: any) => {
       );
     }
 
-    const updatedData = await updateStudentProfile(user.id, parsed.data as any);
+    const userId = user.sub || user.id;
+    const updatedData = await updateStudentProfile(userId, parsed.data as any);
     return NextResponse.json({
       success: true,
       data: updatedData,

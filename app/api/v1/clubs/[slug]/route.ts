@@ -73,6 +73,37 @@ export const PATCH = withAuth(
       console.error('[PATCH /clubs/:slug]', err);
       return errorResponse('Failed to update club.', 500);
     }
+  }
+);
+
+// DELETE /api/v1/clubs/:slug — Permanent deletion (Admin only, requires prior archival)
+export const DELETE = withAuth(
+  async (req: NextRequest, ctx: { params: Promise<Params> }, user) => {
+    if (user.role !== 'admin') {
+      return errorResponse('Only platform administrators can permanently delete a club.', 403, 'FORBIDDEN');
+    }
+
+    const { slug } = await ctx.params;
+    let confirmedName: string | undefined;
+
+    try {
+      const body = await req.json().catch(() => null);
+      if (body && typeof body === 'object' && typeof body.confirmed_name === 'string') {
+        confirmedName = body.confirmed_name;
+      }
+    } catch {
+      // Body optional
+    }
+
+    try {
+      const { permanentlyDeleteClub } = await import('@/lib/services/club.service');
+      const result = await permanentlyDeleteClub(slug, { id: user.sub, role: user.role }, confirmedName);
+      return successResponse(result);
+    } catch (err) {
+      if (err instanceof AppError) return errorResponse(err.message, err.statusCode, err.code);
+      console.error('[DELETE /clubs/:slug]', err);
+      return errorResponse('Failed to delete club.', 500);
+    }
   },
-  ['club_lead', 'admin']
+  ['admin']
 );

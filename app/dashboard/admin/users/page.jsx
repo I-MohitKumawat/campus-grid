@@ -134,7 +134,6 @@ export default function AdminUsersPage() {
         >
           <option value="">All Platform Roles</option>
           <option value="student">Student</option>
-          <option value="club_lead">Club Lead</option>
           <option value="faculty">Faculty</option>
           <option value="admin">Admin</option>
         </select>
@@ -189,12 +188,10 @@ export default function AdminUsersPage() {
                         className={`rounded-xl border px-3 py-1.5 text-xs font-bold focus:outline-none transition-colors cursor-pointer ${
                           u.role === 'admin' ? 'bg-rose-950/40 border-rose-500/40 text-rose-300' :
                           u.role === 'faculty' ? 'bg-amber-950/40 border-amber-500/40 text-amber-300' :
-                          u.role === 'club_lead' ? 'bg-violet-950/40 border-violet-500/40 text-violet-300' :
                           'bg-zinc-900 border-zinc-800 text-zinc-200'
                         }`}
                       >
                         <option value="student">Student</option>
-                        <option value="club_lead">Club Lead</option>
                         <option value="faculty">Faculty</option>
                         <option value="admin">Admin</option>
                       </select>

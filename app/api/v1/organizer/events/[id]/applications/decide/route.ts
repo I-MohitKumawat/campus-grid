@@ -14,19 +14,19 @@ export async function POST(
   const { id } = await params;
   return withAuth(async (r, _ctx, user) => {
     try {
-      const body = await r.json();
-      const { registration_ids, action, decision_notes } = body;
+      let body: any = {};
+      try {
+        body = await r.json();
+      } catch {
+        body = {};
+      }
 
-      if (!registration_ids || !Array.isArray(registration_ids) || registration_ids.length === 0) {
-        return errorResponse('Missing registration_ids array.', 400);
-      }
-      if (action !== 'approve' && action !== 'reject') {
-        return errorResponse('Action must be either "approve" or "reject".', 400);
-      }
+      const { registration_ids, action, decision_notes } = body || {};
 
       const result = await decideApplications({
         eventId: id,
-        organizerId: user.sub,
+        callerId: user.sub,
+        callerRole: user.role,
         registrationIds: registration_ids,
         action,
         decisionNotes: decision_notes,

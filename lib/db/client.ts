@@ -24,14 +24,14 @@ export const db: Pool =
     connectionString: process.env.DATABASE_URL,
     // Neon serverless connections are kept alive via the HTTP proxy;
     // for local pg, a small pool is sufficient.
-    max: process.env.NODE_ENV === 'production' ? 10 : 3,
+    max: 10,
     idleTimeoutMillis: 30_000,
-    connectionTimeoutMillis: 5_000,
+    connectionTimeoutMillis: 30_000,
     ssl:
       process.env.DATABASE_URL.includes('neon.tech') ||
-      process.env.DATABASE_URL.includes('render.com') ||
-      process.env.DATABASE_URL.includes('oregon-postgres') ||
-      process.env.DATABASE_URL.includes('sslmode=require')
+        process.env.DATABASE_URL.includes('render.com') ||
+        process.env.DATABASE_URL.includes('oregon-postgres') ||
+        process.env.DATABASE_URL.includes('sslmode=require')
         ? { rejectUnauthorized: false }
         : false,
   });

@@ -161,14 +161,13 @@ export default function CertificateGenerationPage({ params }) {
                       <td className="p-4 font-mono text-zinc-400">{new Date(cert.issued_at).toLocaleDateString()}</td>
 
                       <td className="p-4 text-right">
-                        <a
-                          href={`/api/v1/certificates/verify/${cert.verification_token}`}
+                        <Link
+                          href={`/certificates/verify/${cert.verification_token}`}
                           target="_blank"
-                          rel="noreferrer"
                           className="inline-flex items-center gap-1 text-[11px] font-bold text-accent hover:underline"
                         >
                           Verify Public Key <ExternalLink className="h-3 w-3" />
-                        </a>
+                        </Link>
                       </td>
                     </tr>
                   ))}

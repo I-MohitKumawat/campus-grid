@@ -25,7 +25,8 @@ import {
   UserCheck,
   Award,
   Lock,
-  ArrowRight
+  ArrowRight,
+  Building2
 } from 'lucide-react';
 
 export default function AdminLayout({ children }) {
@@ -69,10 +70,9 @@ export default function AdminLayout({ children }) {
   }
 
   const adminTabs = [
-    { name: 'Dashboard', href: '/dashboard/admin', icon: LayoutDashboard },
-    { name: 'Clubs', href: '/dashboard/admin/clubs', icon: Users },
-    { name: 'Events', href: '/dashboard/admin/events', icon: Calendar },
-    { name: 'Users', href: '/dashboard/admin/users', icon: UserCheck },
+    { name: 'Overview', href: '/dashboard/admin', icon: LayoutDashboard },
+    { name: 'Clubs & Archive', href: '/dashboard/admin/clubs', icon: Building2 },
+    { name: 'Users & Roles', href: '/dashboard/admin/users', icon: UserCheck },
     { name: 'Certificates', href: '/dashboard/admin/certificates', icon: Award }
   ];
 

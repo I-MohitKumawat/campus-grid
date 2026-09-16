@@ -32,13 +32,12 @@ export const POST = withAuth(
 
     try {
       const club = await getClubBySlug(slug);
-      await inviteClubMember(club.id as string, user.sub, parsed.data);
+      await inviteClubMember(club.id as string, user.sub, user.role, parsed.data);
       return successResponse({ message: 'Member invited successfully.' }, 201);
     } catch (err) {
       if (err instanceof AppError) return errorResponse(err.message, err.statusCode, err.code);
       console.error('[POST /clubs/:slug/members/invite]', err);
       return errorResponse('Failed to invite member.', 500);
     }
-  },
-  ['club_lead']
+  }
 );

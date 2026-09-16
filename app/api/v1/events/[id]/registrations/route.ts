@@ -23,6 +23,5 @@ export const GET = withAuth(
       if (err instanceof AppError) return errorResponse(err.message, err.statusCode, err.code);
       return errorResponse('Failed to load registrations.', 500);
     }
-  },
-  ['club_lead', 'faculty', 'admin']
+  }
 );

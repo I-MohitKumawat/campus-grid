@@ -11,6 +11,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import Link from 'next/link';
 import {
   Award,
   Search,
@@ -119,14 +120,13 @@ export default function AdminCertificatesPage() {
                     {/* Actions */}
                     <td className="px-6 py-4 text-right">
                       {crt.verification_token ? (
-                        <a
-                          href={`/api/v1/certificates/verify/${crt.verification_token}`}
+                        <Link
+                          href={`/certificates/verify/${crt.verification_token}`}
                           target="_blank"
-                          rel="noreferrer"
                           className="px-3 py-1.5 rounded-xl bg-violet-950/40 hover:bg-violet-900/60 border border-violet-800/40 text-violet-300 font-bold text-[11px] inline-flex items-center gap-1.5 transition-colors"
                         >
                           <ShieldCheck className="h-3.5 w-3.5" /> Verify Credential Token &rarr;
-                        </a>
+                        </Link>
                       ) : (
                         <span className="text-zinc-600 italic">No Token</span>
                       )}

@@ -32,18 +32,19 @@ import {
   ShieldCheck,
   Tag,
   ArrowRight,
-  CheckCircle2
+  CheckCircle2,
+  Edit3
 } from 'lucide-react';
 import DashboardNavbar from '@/components/layout/DashboardNavbar';
-
-
+import { useAuth } from '@/components/providers/AuthProvider';
+import { can } from '@/lib/permissions';
 
 export default function EventDetailPage({ params }) {
   const router = useRouter();
   const resolvedParams = use(params);
   const eventId = resolvedParams.id;
 
-  const [user, setUser] = useState({ username: 'arjun', role: 'admin', email: 'arjun@college.ac.in' });
+  const { user, logout: handleLogout } = useAuth();
   const [event, setEvent] = useState(null);
   const [relatedEvents, setRelatedEvents] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -74,16 +75,6 @@ export default function EventDetailPage({ params }) {
     loadEventData();
   }, [eventId]);
 
-  const handleLogout = async () => {
-    try {
-      await fetch('/api/v1/auth/session', { method: 'DELETE' });
-      router.push('/sign-in');
-      router.refresh();
-    } catch (err) {
-      console.error('Logout error:', err);
-    }
-  };
-
   // Handle Registration Action
   const handleRegister = async () => {
     if (!event) return;
@@ -99,31 +90,34 @@ export default function EventDetailPage({ params }) {
 
       const result = await res.json().catch(() => null);
 
-      const isApprovalMode = event.registration_mode === 'approval';
-      const newStatus = isApprovalMode ? 'pending' : (result?.data?.status || 'registered');
+      if (res.ok && result?.success && result?.data) {
+        const regData = result.data;
+        const isApprovalMode = event.registration_mode === 'approval';
 
-      setEvent(prev => ({
-        ...prev,
-        attendee_count: isApprovalMode ? prev.attendee_count : prev.attendee_count + 1,
-        remaining_seats: prev.remaining_seats !== null ? Math.max(0, prev.remaining_seats - 1) : null,
-        button_state: isApprovalMode ? 'PENDING_APPROVAL' : 'REGISTERED',
-        user_registration: {
-          id: result?.data?.id || 'reg-id-101',
-          status: newStatus,
-          attendance_mode: 'offline',
-          qr_token: result?.data?.qr_token || `QR-${eventId}-ARJUN`,
-          registered_at: new Date().toISOString()
-        }
-      }));
+        setEvent(prev => ({
+          ...prev,
+          attendee_count: isApprovalMode ? prev.attendee_count : prev.attendee_count + 1,
+          remaining_seats: prev.remaining_seats !== null ? Math.max(0, prev.remaining_seats - 1) : null,
+          button_state: isApprovalMode ? 'PENDING_APPROVAL' : (regData.status === 'waitlisted' ? 'WAITLISTED' : 'REGISTERED'),
+          user_registration: regData
+        }));
 
-      setFeedback({
-        type: 'success',
-        msg: isApprovalMode 
-          ? 'Application Submitted! Waiting for organizer approval.' 
-          : 'Registration Successful! Your seat has been confirmed.'
-      });
-    } catch (err) {
-      setFeedback({ type: 'error', msg: err.message || 'Registration failed. Please try again.' });
+        setFeedback({
+          type: 'success',
+          msg: isApprovalMode 
+            ? 'Application Submitted! Waiting for organizer approval.' 
+            : regData.status === 'waitlisted'
+            ? 'Capacity reached. You have been added to the waitlist.'
+            : 'Registration Successful! Your seat has been confirmed.'
+        });
+      } else {
+        setFeedback({
+          type: 'error',
+          msg: result?.error?.message || result?.error || 'Registration failed. Please try again.'
+        });
+      }
+    } catch {
+      setFeedback({ type: 'error', msg: 'Network error during registration. Please try again.' });
     } finally {
       setActionLoading(false);
     }
@@ -284,13 +278,25 @@ export default function EventDetailPage({ params }) {
       {/* Main Container */}
       <main className="max-w-7xl mx-auto px-6 pt-6 space-y-8">
         
-        {/* Breadcrumb */}
-        <div className="flex items-center gap-2 text-xs font-semibold text-zinc-400">
-          <Link href="/dashboard/events" className="flex items-center gap-1 hover:text-white transition-colors">
-            <ArrowLeft className="h-3.5 w-3.5" /> Events
-          </Link>
-          <span className="text-zinc-600">/</span>
-          <span className="text-zinc-200 truncate max-w-xs">{event.title}</span>
+        {/* Breadcrumb & Contextual Privileged Control */}
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-2 text-xs font-semibold text-zinc-400 overflow-hidden">
+            <Link href="/dashboard/events" className="flex items-center gap-1 hover:text-white transition-colors shrink-0">
+              <ArrowLeft className="h-3.5 w-3.5" /> Events
+            </Link>
+            <span className="text-zinc-600">/</span>
+            <span className="text-zinc-200 truncate max-w-xs">{event.title}</span>
+          </div>
+
+          {can('event:manage', user, { event }) && (
+            <Link
+              href={`/dashboard/event-studio/events/${event.id}/edit`}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-zinc-900 border border-zinc-800 hover:border-accent text-zinc-200 hover:text-white text-xs font-bold transition-all shadow-md shrink-0 cursor-pointer"
+            >
+              <Edit3 className="h-3.5 w-3.5 text-accent" />
+              <span>Manage in Event Studio</span>
+            </Link>
+          )}
         </div>
 
         {/* ── SECTION 1: HERO BANNER ── */}
@@ -640,16 +646,16 @@ export default function EventDetailPage({ params }) {
                   <div className="pt-2 border-t border-zinc-900 space-y-2 text-center">
                     <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block">Digital QR Pass</span>
                     
-                    {isCheckInOpen ? (
+                    {event.user_registration?.status === 'registered' || event.user_registration?.status === 'attended' ? (
                       <Link
                         href={`/dashboard/events/${eventId}/pass`}
                         className="w-full rounded-xl bg-accent/15 border border-accent/30 py-2.5 px-4 text-xs font-bold text-accent hover:bg-accent/25 transition-all inline-flex items-center justify-center gap-1.5"
                       >
-                        <QrCode className="h-4 w-4" /> View Pass
+                        <QrCode className="h-4 w-4" /> View Digital Pass
                       </Link>
                     ) : (
                       <div className="p-3 rounded-xl bg-zinc-900/80 border border-zinc-800 text-[11px] text-zinc-400 font-medium leading-normal">
-                        QR Pass will become available when check-in opens.
+                        QR Pass is only available for confirmed attendees.
                       </div>
                     )}
                   </div>

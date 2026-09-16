@@ -77,8 +77,7 @@ export const PATCH = withAuth(
       if (err instanceof AppError) return errorResponse(err.message, err.statusCode, err.code);
       return errorResponse('Failed to update event.', 500);
     }
-  },
-  ['club_lead', 'admin']
+  }
 );
 
 // DELETE — admin only

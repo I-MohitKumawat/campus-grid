@@ -12,9 +12,9 @@ export async function GET(
   { params }: { params: Promise<Params> }
 ) {
   const { id } = await params;
-  return withAuth(async (_r, _ctx, _user) => {
+  return withAuth(async (_r, _ctx, user) => {
     try {
-      const certs = await getEventCertificates(id);
+      const certs = await getEventCertificates(id, user.sub, user.role);
       return successResponse(certs);
     } catch (err) {
       if (err instanceof AppError) return errorResponse(err.message, err.statusCode, err.code);
@@ -32,7 +32,7 @@ export async function POST(
   const { id } = await params;
   return withAuth(async (_r, _ctx, user) => {
     try {
-      const result = await issueCertificatesForEvent(id, user.sub);
+      const result = await issueCertificatesForEvent(id, user.sub, user.role);
       return successResponse(result);
     } catch (err) {
       if (err instanceof AppError) return errorResponse(err.message, err.statusCode, err.code);

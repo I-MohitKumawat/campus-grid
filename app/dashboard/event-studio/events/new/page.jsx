@@ -7,10 +7,10 @@
  * Supports creating events as Draft or directly submitting for Faculty/Admin Approval.
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, Calendar, MapPin, Users, Sparkles, Send, Save, AlertCircle } from 'lucide-react';
+import { ArrowLeft, Calendar, MapPin, Users, Sparkles, Send, Save, AlertCircle, Building2 } from 'lucide-react';
 import DashboardNavbar from '@/components/layout/DashboardNavbar';
 import { useAuth } from '@/components/providers/AuthProvider';
 
@@ -19,11 +19,13 @@ export default function CreateEventPage() {
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
   const [feedback, setFeedback] = useState(null);
+  const [clubs, setClubs] = useState([]);
   const [formData, setFormData] = useState({
     title: '',
     description: '',
     event_type: 'hackathon',
     visibility: 'public',
+    club_id: '',
     event_date: '',
     duration_minutes: 120,
     venue: '',
@@ -35,9 +37,37 @@ export default function CreateEventPage() {
     banner_url: ''
   });
 
+  const isAdmin = Boolean(user && user.role === 'admin');
+
+  useEffect(() => {
+    async function loadClubs() {
+      try {
+        const endpoint = user?.role === 'admin' ? '/api/v1/clubs' : '/api/v1/clubs?joined=true';
+        const res = await fetch(endpoint);
+        const json = await res.json().catch(() => null);
+        if (res.ok && json?.success && Array.isArray(json.data)) {
+          setClubs(json.data);
+          if (json.data.length === 1 && !formData.club_id && !isAdmin) {
+            setFormData(prev => ({ ...prev, club_id: json.data[0].id }));
+          }
+        }
+      } catch (err) {
+        console.error('Failed to load clubs:', err);
+      }
+    }
+    if (user) {
+      loadClubs();
+    }
+  }, [user, isAdmin]);
+
   const handleSubmit = async (isSubmitForApproval = false) => {
     if (!formData.title || !formData.event_date || !formData.venue) {
       setFeedback({ type: 'error', msg: 'Title, Event Date, and Venue are required.' });
+      return;
+    }
+
+    if (!isAdmin && !formData.club_id) {
+      setFeedback({ type: 'error', msg: 'Please select a host club for this event.' });
       return;
     }
 
@@ -46,16 +76,19 @@ export default function CreateEventPage() {
 
     try {
       // 1. Create event
+      const payload = {
+        ...formData,
+        club_id: formData.club_id || undefined,
+        capacity: Number(formData.capacity) || null,
+        duration_minutes: Number(formData.duration_minutes) || 120,
+        event_date: new Date(formData.event_date).toISOString(),
+        registration_deadline: formData.registration_deadline ? new Date(formData.registration_deadline).toISOString() : null
+      };
+
       const res = await fetch('/api/v1/events', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...formData,
-          capacity: Number(formData.capacity) || null,
-          duration_minutes: Number(formData.duration_minutes) || 120,
-          event_date: new Date(formData.event_date).toISOString(),
-          registration_deadline: formData.registration_deadline ? new Date(formData.registration_deadline).toISOString() : null
-        })
+        body: JSON.stringify(payload)
       });
 
       const result = await res.json();
@@ -77,7 +110,7 @@ export default function CreateEventPage() {
           router.push('/dashboard/event-studio');
         }, 1500);
       } else {
-        setFeedback({ type: 'error', msg: result?.error?.message || 'Failed to create event.' });
+        setFeedback({ type: 'error', msg: result?.error?.message || result?.error || 'Failed to create event.' });
       }
     } catch {
       setFeedback({ type: 'error', msg: 'Server error creating event.' });
@@ -118,6 +151,28 @@ export default function CreateEventPage() {
 
         <div className="rounded-3xl border border-zinc-900 bg-zinc-900/20 backdrop-blur-xl p-6 sm:p-8 space-y-6">
           
+          {/* Host Club / Organization Selection */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold text-zinc-300 flex items-center justify-between">
+              <span>Host Club / Organization {isAdmin ? '(Optional for Institutional)' : '*'}</span>
+              <span className="text-[10px] text-zinc-500 font-normal">
+                {isAdmin ? 'Admins can host institutional or club-associated events' : 'Events must be hosted by a verified club'}
+              </span>
+            </label>
+            <select
+              value={formData.club_id}
+              onChange={(e) => setFormData({ ...formData, club_id: e.target.value })}
+              className="w-full rounded-xl bg-zinc-950 border border-zinc-800 px-4 py-2.5 text-xs text-zinc-100 outline-none focus:border-accent"
+            >
+              <option value="">{isAdmin ? '-- Institutional Platform Event (No Club) --' : '-- Select Host Club --'}</option>
+              {clubs.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name} {c.category ? `(${c.category})` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+
           {/* Title & Type */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="sm:col-span-2 space-y-1.5">

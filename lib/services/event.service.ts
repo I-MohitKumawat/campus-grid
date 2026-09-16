@@ -20,6 +20,7 @@ import {
   NotFoundError,
   ValidationError,
 } from '@/lib/errors';
+import { canClubAction, assertClubAction } from '@/lib/auth/club-permissions';
 import type {
   EventCreateInput,
   EventUpdateInput,
@@ -49,7 +50,50 @@ async function requireEvent(eventId: string) {
     [eventId]
   );
   if (!result.rowCount || result.rowCount === 0) throw new NotFoundError('Event');
-  return result.rows[0] as Record<string, unknown> & { status: EventStatus; organiser_id: string; club_id: string | null; visibility: string; organiser_type: string };
+  return result.rows[0] as Record<string, unknown> & {
+    status: EventStatus;
+    organiser_id: string;
+    club_id: string | null;
+    visibility: string;
+    organiser_type: string;
+    title: string;
+    capacity?: number | string | null;
+    attendee_count?: number | string | null;
+    archived_at?: string | null;
+  };
+}
+
+/**
+ * Verifies that the caller has permission to manage the specified event.
+ *
+ * Rules:
+ * 1. Admin role ('admin') has global authority across all events.
+ * 2. The direct creator / organiser of the event (event.organiser_id === callerId) has management authority.
+ * 3. An authorized officer of the club hosting the event (via manage_club_event capability) has management authority.
+ *
+ * All other roles / contexts (e.g. general students, unaffiliated members) are rejected with ForbiddenError (403).
+ */
+export async function assertCanManageEvent(
+  event: { organiser_id?: string | null; club_id?: string | null },
+  callerId: string,
+  callerRole: string,
+  actionDescription = 'manage this event'
+): Promise<void> {
+  if (callerRole === 'admin') {
+    return;
+  }
+
+  if (event.club_id) {
+    const allowed = await canClubAction({ id: callerId, role: callerRole }, event.club_id, 'manage_club_event');
+    if (allowed) {
+      return;
+    }
+  } else if (event.organiser_id && event.organiser_id === callerId) {
+    // Non-club event created directly by organizer
+    return;
+  }
+
+  throw new ForbiddenError(`You do not have permission to ${actionDescription}.`);
 }
 
 // ── List / Get ────────────────────────────────────────────────────────────────
@@ -92,15 +136,15 @@ export async function listUpcomingEvents(limit = 20, cursor?: string) {
   };
 }
 
-/** Past completed public events. */
+/** Past completed / concluded public events. */
 export async function listPastEvents(limit = 20, page = 1) {
   const offset = (page - 1) * limit;
   const result = await query(
     `SELECT e.id, e.title, e.banner_url, e.event_type, e.event_date,
-            e.attendee_count, e.domain_tags, c.name as club_name
+            e.attendee_count, e.domain_tags, c.name as club_name, c.slug as club_slug, c.logo_url as club_logo_url
      FROM events e
      LEFT JOIN clubs c ON c.id = e.club_id
-     WHERE e.status = 'completed'
+     WHERE (e.status = 'completed' OR (e.status = 'published' AND e.event_date < now()))
        AND e.visibility = 'public'
        AND e.deleted_at IS NULL
      ORDER BY e.event_date DESC
@@ -109,7 +153,10 @@ export async function listPastEvents(limit = 20, page = 1) {
   );
 
   const countResult = await query(
-    `SELECT COUNT(*) FROM events WHERE status = 'completed' AND visibility = 'public' AND deleted_at IS NULL`
+    `SELECT COUNT(*) FROM events 
+     WHERE (status = 'completed' OR (status = 'published' AND event_date < now())) 
+       AND visibility = 'public' 
+       AND deleted_at IS NULL`
   );
   const total = parseInt((countResult.rows[0] as { count: string }).count, 10);
 
@@ -131,6 +178,35 @@ export async function getEventById(eventId: string, currentUserId?: string | nul
   if (!result.rowCount || result.rowCount === 0) throw new NotFoundError('Event');
 
   const event = result.rows[0];
+
+  // Security guard for non-published events:
+  // Draft and pending-approval events are strictly invisible to students / unauthenticated users.
+  if (['draft', 'pending_faculty', 'pending_admin'].includes(event.status)) {
+    let isAuthorizedViewer = false;
+    if (currentUserId) {
+      if (event.organiser_id === currentUserId) {
+        isAuthorizedViewer = true;
+      } else {
+        const userRoleRes = await query('SELECT role FROM users WHERE id = $1', [currentUserId]);
+        const callerRole = userRoleRes.rows[0]?.role;
+        if (callerRole === 'admin') {
+          isAuthorizedViewer = true;
+        } else if (event.club_id) {
+          isAuthorizedViewer = await canClubAction({ id: currentUserId, role: callerRole }, event.club_id, 'manage_club_event');
+          if (!isAuthorizedViewer && event.status === 'pending_faculty') {
+            const facCheck = await query(
+              'SELECT 1 FROM club_faculty_advisors WHERE club_id = $1 AND faculty_id = $2',
+              [event.club_id, currentUserId]
+            );
+            if ((facCheck.rowCount ?? 0) > 0) isAuthorizedViewer = true;
+          }
+        }
+      }
+    }
+    if (!isAuthorizedViewer) {
+      throw new NotFoundError('Event');
+    }
+  }
 
   // 1. Fetch active attendee count directly from registrations
   const regCountResult = await query(
@@ -253,21 +329,17 @@ export async function createEvent(
     organiserType = 'club';
   }
 
-  // If organiser_type = 'club', club_id must be provided and caller must have posting access
+  // If organiser_type = 'club', club_id must be provided and caller must have create_club_event capability
   if (organiserType === 'club') {
     if (!data.club_id) {
       throw new ValidationError('club_id is required when creating an event as a club.');
     }
-    const memberCheck = await query(
-      `SELECT 1 FROM club_memberships
-       WHERE club_id = $1 AND user_id = $2 AND posting_access = TRUE AND status = 'active'`,
-      [data.club_id, organiserUserId]
+    await assertClubAction(
+      { id: organiserUserId, role: callerRole },
+      data.club_id,
+      'create_club_event',
+      'You do not have the required club position permissions to create events for this club.'
     );
-    if (!memberCheck.rowCount || memberCheck.rowCount === 0) {
-      throw new ForbiddenError(
-        'You do not have posting access in this club. Ask the club lead to grant it.'
-      );
-    }
   }
 
   const result = await query(
@@ -316,10 +388,8 @@ export async function updateEvent(
 ) {
   const event = await requireEvent(eventId);
 
-  // Only organiser or admin may update
-  if (callerRole !== 'admin' && event.organiser_id !== callerId) {
-    throw new ForbiddenError('Only the organiser or an admin can update this event.');
-  }
+  // Authorize: creator, authorized club officer of host club, or admin
+  await assertCanManageEvent(event, callerId, callerRole, 'update this event');
 
   // Cannot update a completed/cancelled event
   if (['completed', 'cancelled'].includes(event.status)) {
@@ -362,6 +432,7 @@ export async function updateEvent(
     await broadcastAnnouncement(
       eventId,
       callerId,
+      callerRole,
       'Important Schedule Update',
       `The event details (venue/date/deadline) for "${event.title}" have been updated by the organizer.`
     );
@@ -386,9 +457,8 @@ export async function submitEventForApproval(
 ) {
   const event = await requireEvent(eventId);
 
-  if (event.organiser_id !== callerId && callerRole !== 'admin') {
-    throw new ForbiddenError('Only the organiser can submit this event.');
-  }
+  await assertCanManageEvent(event, callerId, callerRole, 'submit this event for approval');
+
   if (event.status !== 'draft') {
     throw new ValidationError(`Event must be in 'draft' status to submit. Current: ${event.status}.`);
   }
@@ -521,6 +591,59 @@ export async function adminDeleteEvent(eventId: string) {
   return { deleted: true };
 }
 
+/**
+ * Cancel an event (Authorized Organizers / Admins).
+ * - Changes status to 'cancelled'
+ * - Blocks future registrations
+ * - Notifies all registered/pending/waitlisted students
+ * - Preserves event row and registration audit history
+ */
+export async function cancelEvent(
+  eventId: string,
+  callerId: string,
+  callerRole: string,
+  cancellationReason?: string
+) {
+  const event = await requireEvent(eventId);
+
+  await assertCanManageEvent(event, callerId, callerRole, 'cancel this event');
+
+  if (event.status === 'completed') {
+    throw new ValidationError('Completed events cannot be cancelled.');
+  }
+  if (event.status === 'cancelled') {
+    throw new ValidationError('Event is already cancelled.');
+  }
+
+  await query(
+    `UPDATE events
+     SET status = 'cancelled',
+         updated_at = now()
+     WHERE id = $1`,
+    [eventId]
+  );
+
+  // Notify all registered / pending / waitlisted attendees
+  const regResult = await query(
+    `SELECT user_id FROM event_registrations
+     WHERE event_id = $1 AND status IN ('registered', 'pending', 'waitlisted')`,
+    [eventId]
+  );
+
+  const reasonMsg = cancellationReason ? ` Reason: ${cancellationReason}` : '';
+  for (const row of regResult.rows) {
+    await createNotification({
+      userId: (row as { user_id: string }).user_id,
+      title: `Event Cancelled: ${event.title}`,
+      message: `The event "${event.title}" scheduled for ${new Date(event.event_date as string).toLocaleDateString()} has been cancelled.${reasonMsg}`,
+      type: 'event_cancelled',
+      linkUrl: `/dashboard/events/${eventId}`,
+    });
+  }
+
+  return { status: 'cancelled', notified_count: regResult.rowCount || 0 };
+}
+
 // ── Registration ──────────────────────────────────────────────────────────────
 
 export async function registerForEvent(
@@ -535,11 +658,23 @@ export async function registerForEvent(
   }
 
   // Check deadline
-  const deadline = event.registration_deadline 
+  const deadline = event.registration_deadline
     ? new Date(event.registration_deadline as string)
     : new Date(event.event_date as string);
   if (new Date() > deadline) {
     throw new ValidationError('Registration deadline has passed.');
+  }
+
+  // Check if student already has an active registration
+  const existingReg = await query(
+    `SELECT id, status FROM event_registrations WHERE event_id = $1 AND user_id = $2`,
+    [eventId, userId]
+  );
+  if (existingReg.rowCount && existingReg.rowCount > 0) {
+    const currStatus = (existingReg.rows[0] as { status: string }).status;
+    if (['registered', 'pending', 'waitlisted', 'attended'].includes(currStatus)) {
+      throw new ConflictError('You have already registered or applied for this event.');
+    }
   }
 
   // Determine initial status based on registration_mode ('approval' vs 'instant')
@@ -549,14 +684,12 @@ export async function registerForEvent(
     const result = await query(
       `INSERT INTO event_registrations (event_id, user_id, status, attendance_mode)
        VALUES ($1, $2, 'pending', $3)
-       ON CONFLICT (event_id, user_id) DO NOTHING
+       ON CONFLICT (event_id, user_id)
+       DO UPDATE SET status = 'pending', attendance_mode = $3, registered_at = now()
        RETURNING *`,
       [eventId, userId, data.attendance_mode]
     );
 
-    if (!result.rowCount || result.rowCount === 0) {
-      throw new ConflictError('You have already applied or registered for this event.');
-    }
     return result.rows[0];
   }
 
@@ -568,18 +701,16 @@ export async function registerForEvent(
       [eventId]
     );
     const count = parseInt((regCount.rows[0] as { count: string }).count, 10);
-    if (count >= (event.capacity as number)) {
+    if (count >= Number(event.capacity)) {
       // Register as waitlisted instead
       const result = await query(
         `INSERT INTO event_registrations (event_id, user_id, status, attendance_mode)
          VALUES ($1, $2, 'waitlisted', $3)
-         ON CONFLICT (event_id, user_id) DO NOTHING
+         ON CONFLICT (event_id, user_id)
+         DO UPDATE SET status = 'waitlisted', attendance_mode = $3, registered_at = now()
          RETURNING *`,
         [eventId, userId, data.attendance_mode]
       );
-      if (!result.rowCount || result.rowCount === 0) {
-        throw new ConflictError('You are already registered or waitlisted for this event.');
-      }
       return result.rows[0];
     }
   }
@@ -587,18 +718,17 @@ export async function registerForEvent(
   const result = await query(
     `INSERT INTO event_registrations (event_id, user_id, status, attendance_mode)
      VALUES ($1, $2, 'registered', $3)
-     ON CONFLICT (event_id, user_id) DO NOTHING
+     ON CONFLICT (event_id, user_id)
+     DO UPDATE SET status = 'registered', attendance_mode = $3, registered_at = now()
      RETURNING *`,
     [eventId, userId, data.attendance_mode]
   );
 
-  if (!result.rowCount || result.rowCount === 0) {
-    throw new ConflictError('You are already registered for this event.');
-  }
-
-  // Increment attendee_count
+  // Update attendee_count to exact active confirmed count
   await query(
-    'UPDATE events SET attendee_count = attendee_count + 1 WHERE id = $1',
+    `UPDATE events
+     SET attendee_count = (SELECT COUNT(*) FROM event_registrations WHERE event_id = $1 AND status IN ('registered', 'attended'))
+     WHERE id = $1`,
     [eventId]
   );
 
@@ -609,7 +739,7 @@ export async function cancelEventRegistration(eventId: string, userId: string) {
   const event = await requireEvent(eventId);
 
   // Check deadline / cancellation policy
-  const deadline = event.registration_deadline 
+  const deadline = event.registration_deadline
     ? new Date(event.registration_deadline as string)
     : new Date(event.event_date as string);
 
@@ -641,7 +771,7 @@ export async function cancelEventRegistration(eventId: string, userId: string) {
 
     if (waitlistResult.rowCount && waitlistResult.rowCount > 0) {
       const promotedReg = waitlistResult.rows[0] as { id: string; user_id: string };
-      
+
       // Promote waitlisted student to 'registered'
       await query(
         `UPDATE event_registrations SET status = 'registered' WHERE id = $1`,
@@ -674,28 +804,24 @@ export async function getEventRegistrations(
 ) {
   const event = await requireEvent(eventId);
 
-  // Check permission: club lead of the organising club, or admin
-  if (callerRole !== 'admin' && event.organiser_id !== callerId) {
-    const memberCheck = await query(
-      `SELECT 1 FROM club_memberships
-       WHERE club_id = $1 AND user_id = $2 AND role IN ('lead','core') AND status = 'active'`,
-      [event.club_id, callerId]
-    );
-    if (!memberCheck.rowCount || memberCheck.rowCount === 0) {
-      throw new ForbiddenError('You do not have permission to view registrations for this event.');
-    }
-  }
+  await assertCanManageEvent(event, callerId, callerRole, 'view registrations for this event');
 
   const result = await query(
     `SELECT er.id, er.status, er.attendance_mode, er.qr_token, er.checked_in_at,
-            er.certificate_issued, er.registered_at,
-            u.id as user_id, u.username, u.avatar_url,
-            p.full_name, p.department, p.year
+            er.checked_in_by, er.certificate_issued, er.registered_at,
+            u.id as user_id, u.username, u.email, u.avatar_url,
+            p.full_name, p.department, p.year, p.roll_number
      FROM event_registrations er
      JOIN users u ON u.id = er.user_id
      LEFT JOIN profiles p ON p.user_id = u.id
      WHERE er.event_id = $1
-     ORDER BY er.registered_at ASC`,
+     ORDER BY 
+       CASE WHEN er.status = 'attended' THEN 1
+            WHEN er.status = 'registered' THEN 2
+            WHEN er.status = 'pending' THEN 3
+            WHEN er.status = 'waitlisted' THEN 4
+            ELSE 5 END ASC,
+       er.registered_at ASC`,
     [eventId]
   );
 
@@ -710,45 +836,107 @@ export async function markAttendance(
 ) {
   const event = await requireEvent(eventId);
 
-  if (callerRole !== 'admin' && event.organiser_id !== callerId) {
-    const memberCheck = await query(
-      `SELECT 1 FROM club_memberships
-       WHERE club_id = $1 AND user_id = $2 AND role IN ('lead','core') AND status = 'active'`,
-      [event.club_id, callerId]
-    );
-    if (!memberCheck.rowCount || memberCheck.rowCount === 0) {
-      throw new ForbiddenError('You do not have permission to mark attendance.');
-    }
+  await assertCanManageEvent(event, callerId, callerRole, 'mark attendance for this event');
+
+  // 1. Gating on event status
+  if (['draft', 'pending_faculty', 'pending_admin'].includes(event.status)) {
+    throw new ValidationError('Attendance cannot be taken for unpublished events.');
+  }
+  if (event.status === 'cancelled') {
+    throw new ValidationError('Cannot check in attendees for a cancelled event.');
+  }
+  if (event.archived_at) {
+    throw new ValidationError('Cannot check in attendees for an archived event.');
   }
 
   let whereClause: string;
   let whereValue: string;
 
   if ('qr_token' in data) {
-    whereClause = 'qr_token = $1';
+    whereClause = 'er.qr_token = $2';
     whereValue = data.qr_token;
   } else {
-    whereClause = 'user_id = $1';
+    whereClause = 'er.user_id = $2';
     whereValue = data.user_id;
   }
 
-  const result = await query(
+  // 2. Fetch existing registration
+  const regResult = await query(
+    `SELECT er.*, u.username, u.email, p.full_name, p.roll_number, p.department
+     FROM event_registrations er
+     JOIN users u ON u.id = er.user_id
+     LEFT JOIN profiles p ON p.user_id = u.id
+     WHERE er.event_id = $1 AND ${whereClause}`,
+    [eventId, whereValue]
+  );
+
+  if (!regResult.rowCount || regResult.rowCount === 0) {
+    // Check if token belongs to a different event
+    if ('qr_token' in data) {
+      const otherCheck = await query(
+        `SELECT event_id FROM event_registrations WHERE qr_token = $1`,
+        [data.qr_token]
+      );
+      if (otherCheck.rowCount && otherCheck.rowCount > 0) {
+        throw new ValidationError('This pass token belongs to a different event.');
+      }
+    }
+    throw new NotFoundError('Student registration for this event');
+  }
+
+  const reg = regResult.rows[0];
+
+  // 3. Status evaluations
+  if (reg.status === 'attended') {
+    return {
+      ...reg,
+      already_checked_in: true,
+      message: `Attendee was already checked in at ${reg.checked_in_at ? new Date(reg.checked_in_at).toLocaleTimeString() : 'an earlier time'}.`,
+    };
+  }
+
+  if (reg.status === 'cancelled') {
+    throw new ValidationError('Cannot check in student with cancelled registration.');
+  }
+  if (reg.status === 'rejected') {
+    throw new ValidationError('Cannot check in student with rejected application.');
+  }
+  if (reg.status === 'waitlisted') {
+    throw new ValidationError('Cannot check in student on waitlist without confirmed seat.');
+  }
+  if (reg.status === 'pending') {
+    throw new ValidationError('Application is pending organizer approval. Cannot check in.');
+  }
+
+  // 4. Mark attendance
+  const updateResult = await query(
     `UPDATE event_registrations
      SET status = 'attended',
          checked_in_at = now(),
-         checked_in_by = $2
-     WHERE event_id = $3
-       AND ${whereClause}
-       AND status = 'registered'
+         checked_in_by = $1
+     WHERE id = $2
      RETURNING *`,
-    [whereValue, callerId, eventId]
+    [callerId, reg.id]
   );
 
-  if (!result.rowCount || result.rowCount === 0) {
-    throw new NotFoundError('Registration (may already be marked attended or cancelled)');
-  }
+  const updatedRow = updateResult.rows[0];
 
-  return result.rows[0];
+  // 5. Send in-app notification
+  await createNotification({
+    userId: reg.user_id,
+    title: `Check-in Confirmed: ${event.title}`,
+    message: `You have been checked in for "${event.title}". Enjoy the session!`,
+    type: 'event_attendance',
+    linkUrl: `/dashboard/events/${eventId}`,
+  });
+
+  return {
+    ...updatedRow,
+    already_checked_in: false,
+    message: 'Check-in successful! Student marked as attended.',
+    full_name: reg.full_name,
+    username: reg.username,
+  };
 }
 
 export async function markBulkAttendance(
@@ -759,8 +947,16 @@ export async function markBulkAttendance(
 ) {
   const event = await requireEvent(eventId);
 
-  if (callerRole !== 'admin' && event.organiser_id !== callerId) {
-    throw new ForbiddenError('You do not have permission to mark bulk attendance.');
+  await assertCanManageEvent(event, callerId, callerRole, 'mark bulk attendance for this event');
+
+  if (['draft', 'pending_faculty', 'pending_admin'].includes(event.status)) {
+    throw new ValidationError('Attendance cannot be taken for unpublished events.');
+  }
+  if (event.status === 'cancelled') {
+    throw new ValidationError('Cannot check in attendees for a cancelled event.');
+  }
+  if (event.archived_at) {
+    throw new ValidationError('Cannot check in attendees for an archived event.');
   }
 
   const result = await query(
@@ -769,9 +965,19 @@ export async function markBulkAttendance(
      WHERE event_id = $2
        AND user_id = ANY($3::uuid[])
        AND status = 'registered'
-     RETURNING user_id`,
+     RETURNING user_id, id`,
     [callerId, eventId, data.user_ids]
   );
+
+  for (const row of result.rows) {
+    await createNotification({
+      userId: (row as { user_id: string }).user_id,
+      title: `Check-in Confirmed: ${event.title}`,
+      message: `You have been checked in for "${event.title}".`,
+      type: 'event_attendance',
+      linkUrl: `/dashboard/events/${eventId}`,
+    });
+  }
 
   return {
     marked: result.rowCount ?? 0,
@@ -783,10 +989,15 @@ export async function markBulkAttendance(
 
 export async function verifyCertificate(verificationToken: string) {
   const result = await query(
-    `SELECT cert.*, e.title as event_title, e.event_date, e.banner_url,
-            u.username, p.full_name
+    `SELECT cert.id, cert.certificate_type, cert.verification_token, cert.issued_at,
+            cert.metadata, cert.revoked_at,
+            e.id as event_id, e.title as event_title, e.event_date, e.venue, e.banner_url,
+            c.id as club_id, c.name as club_name, c.logo_url as club_logo_url,
+            u.id as user_id, u.username as recipient_username,
+            p.full_name as recipient_name, p.department as recipient_department
      FROM certificates cert
      JOIN events e ON e.id = cert.event_id
+     LEFT JOIN clubs c ON c.id = e.club_id
      JOIN users u ON u.id = cert.user_id
      LEFT JOIN profiles p ON p.user_id = u.id
      WHERE cert.verification_token = $1
@@ -824,7 +1035,7 @@ export async function getOrganizerEvents(organizerId: string) {
      FROM events e
      LEFT JOIN clubs c ON c.id = e.club_id
      WHERE (e.organiser_id = $1 OR e.club_id IN (
-       SELECT club_id FROM club_memberships WHERE user_id = $1 AND role IN ('president','lead','core') AND status = 'active'
+        SELECT club_id FROM club_memberships WHERE user_id = $1 AND role IN ('president', 'vice_president', 'secretary', 'vice_secretary', 'technical_lead') AND status = 'active'
      ))
        AND e.deleted_at IS NULL
      ORDER BY e.updated_at DESC`,
@@ -858,8 +1069,14 @@ export async function getOrganizerEvents(organizerId: string) {
 }
 
 /** Withdraw pending event submission back to draft. */
-export async function withdrawEventSubmission(eventId: string, organizerId: string) {
+export async function withdrawEventSubmission(
+  eventId: string,
+  callerId: string,
+  callerRole: string
+) {
   const event = await requireEvent(eventId);
+  await assertCanManageEvent(event, callerId, callerRole, 'withdraw this event submission');
+
   if (event.status !== 'pending_faculty' && event.status !== 'pending_admin') {
     throw new ValidationError('Only pending submissions can be withdrawn.');
   }
@@ -875,13 +1092,23 @@ export async function withdrawEventSubmission(eventId: string, organizerId: stri
 /** Single/Bulk Registration Decision (Approve / Reject applications). */
 export async function decideApplications(opts: {
   eventId: string;
-  organizerId: string;
+  callerId: string;
+  callerRole: string;
   registrationIds: string[];
   action: 'approve' | 'reject';
   decisionNotes?: string;
 }) {
-  const { eventId, organizerId, registrationIds, action, decisionNotes } = opts;
+  const { eventId, callerId, callerRole, registrationIds, action, decisionNotes } = opts;
   const event = await requireEvent(eventId);
+  await assertCanManageEvent(event, callerId, callerRole, 'decide applications for this event');
+
+  if (!registrationIds || !Array.isArray(registrationIds) || registrationIds.length === 0) {
+    throw new ValidationError('Missing or empty registration_ids array.');
+  }
+  if (action !== 'approve' && action !== 'reject') {
+    throw new ValidationError('Action must be either "approve" or "reject".');
+  }
+
   if (event.status === 'completed' || event.archived_at) {
     throw new ValidationError('Cannot modify applications for completed or archived events.');
   }
@@ -909,7 +1136,7 @@ export async function decideApplications(opts: {
          AND id = ANY($4::uuid[])
          AND status = 'pending'
        RETURNING user_id`,
-      [organizerId, decisionNotes || null, eventId, registrationIds]
+      [callerId, decisionNotes || null, eventId, registrationIds]
     );
 
     const count = result.rowCount || 0;
@@ -933,7 +1160,7 @@ export async function decideApplications(opts: {
       }
     }
 
-    return { approved_count: count };
+    return { approved_count: count, updated_count: count };
   } else {
     // Action: Reject
     const result = await query(
@@ -946,7 +1173,7 @@ export async function decideApplications(opts: {
          AND id = ANY($4::uuid[])
          AND status = 'pending'
        RETURNING user_id`,
-      [organizerId, decisionNotes || null, eventId, registrationIds]
+      [callerId, decisionNotes || null, eventId, registrationIds]
     );
 
     const count = result.rowCount || 0;
@@ -962,13 +1189,19 @@ export async function decideApplications(opts: {
       });
     }
 
-    return { rejected_count: count };
+    return { rejected_count: count, updated_count: count };
   }
 }
 
 /** Complete an event: locks registrations, check-ins, and enables certificates. */
-export async function completeEvent(eventId: string, organizerId: string) {
+export async function completeEvent(
+  eventId: string,
+  callerId: string,
+  callerRole: string
+) {
   const event = await requireEvent(eventId);
+  await assertCanManageEvent(event, callerId, callerRole, 'complete this event');
+
   if (event.status === 'completed') {
     throw new ValidationError('Event is already completed.');
   }
@@ -986,8 +1219,13 @@ export async function completeEvent(eventId: string, organizerId: string) {
 }
 
 /** Archive an event: read-only historical freeze. */
-export async function archiveEvent(eventId: string, organizerId: string) {
+export async function archiveEvent(
+  eventId: string,
+  callerId: string,
+  callerRole: string
+) {
   const event = await requireEvent(eventId);
+  await assertCanManageEvent(event, callerId, callerRole, 'archive this event');
 
   await query(
     `UPDATE events
@@ -1001,8 +1239,19 @@ export async function archiveEvent(eventId: string, organizerId: string) {
 }
 
 /** Broadcast announcement notification to all registered attendees. */
-export async function broadcastAnnouncement(eventId: string, organizerId: string, title: string, message: string) {
+export async function broadcastAnnouncement(
+  eventId: string,
+  callerId: string,
+  callerRole: string,
+  title: string,
+  message: string
+) {
   const event = await requireEvent(eventId);
+  await assertCanManageEvent(event, callerId, callerRole, 'broadcast announcements for this event');
+
+  if (!title || !message) {
+    throw new ValidationError('Title and message are required for announcements.');
+  }
 
   const regResult = await query(
     `SELECT user_id FROM event_registrations
@@ -1024,18 +1273,46 @@ export async function broadcastAnnouncement(eventId: string, organizerId: string
 }
 
 /** Issue digital participation certificates for all attended students of a completed event. */
-export async function issueCertificatesForEvent(eventId: string, organizerId: string) {
+export async function issueCertificatesForEvent(
+  eventId: string,
+  callerId: string,
+  callerRole: string
+) {
   const event = await requireEvent(eventId);
-  
+  await assertCanManageEvent(event, callerId, callerRole, 'issue certificates for this event');
+
+  if (['draft', 'pending_faculty', 'pending_admin'].includes(event.status)) {
+    throw new ValidationError('Certificates cannot be issued for unpublished events.');
+  }
+  if (event.status === 'cancelled') {
+    throw new ValidationError('Cannot issue certificates for a cancelled event.');
+  }
+  if (event.archived_at) {
+    throw new ValidationError('Cannot issue certificates for an archived event.');
+  }
   if (event.status !== 'completed') {
     throw new ValidationError('Certificates can only be issued for completed events.');
   }
 
+  // Total attended count
+  const totalAttendedRes = await query(
+    `SELECT COUNT(*) FROM event_registrations WHERE event_id = $1 AND status = 'attended'`,
+    [eventId]
+  );
+  const totalAttended = parseInt(totalAttendedRes.rows[0]?.count || '0', 10);
+
+  // Fetch only eligible attended registrations without an existing certificate
   const attendedRes = await query(
-    `SELECT er.id as reg_id, er.user_id, u.username
+    `SELECT er.id as reg_id, er.user_id, u.username, p.full_name
      FROM event_registrations er
      JOIN users u ON u.id = er.user_id
-     WHERE er.event_id = $1 AND er.status = 'attended' AND er.certificate_issued = FALSE`,
+     LEFT JOIN profiles p ON p.user_id = u.id
+     WHERE er.event_id = $1
+       AND er.status = 'attended'
+       AND er.certificate_issued = FALSE
+       AND er.user_id NOT IN (
+         SELECT user_id FROM certificates WHERE event_id = $1
+       )`,
     [eventId]
   );
 
@@ -1043,12 +1320,13 @@ export async function issueCertificatesForEvent(eventId: string, organizerId: st
   for (const row of attendedRes.rows) {
     const userId = (row as { user_id: string }).user_id;
     const regId = (row as { reg_id: string }).reg_id;
-    const token = `CERT-${Math.random().toString(36).substring(2, 10).toUpperCase()}-${Date.now().toString(36).toUpperCase()}`;
+    const token = `CERT-${Math.random().toString(36).substring(2, 8).toUpperCase()}-${Date.now().toString(36).toUpperCase()}`;
 
     await query(
-      `INSERT INTO certificates (event_id, user_id, certificate_type, verification_token, issued_at)
-       VALUES ($1, $2, 'participation', $3, now())`,
-      [eventId, userId, token]
+      `INSERT INTO certificates (event_id, user_id, registration_id, certificate_type, verification_token, issued_at)
+       VALUES ($1, $2, $3, 'participation', $4, now())
+       ON CONFLICT (event_id, user_id) DO NOTHING`,
+      [eventId, userId, regId, token]
     );
 
     await query(
@@ -1058,20 +1336,33 @@ export async function issueCertificatesForEvent(eventId: string, organizerId: st
 
     await createNotification({
       userId,
-      title: `Certificate Issued! 🎓`,
-      message: `Your verified participation certificate for "${event.title}" is now available. Token: ${token}`,
+      title: `Certificate Issued: ${event.title}`,
+      message: `Your verified certificate of participation for "${event.title}" is ready. Token: ${token}`,
       type: 'certificate',
-      linkUrl: `/api/v1/certificates/verify/${token}`
+      linkUrl: `/certificates/verify/${token}`
     });
 
     issuedCount++;
   }
 
-  return { issued_count: issuedCount };
+  return {
+    issued_count: issuedCount,
+    total_eligible: totalAttended,
+    message: issuedCount > 0
+      ? `Successfully issued ${issuedCount} digital certificates.`
+      : 'All eligible attendees have already received their certificates.'
+  };
 }
 
 /** Get list of issued certificates for an event. */
-export async function getEventCertificates(eventId: string) {
+export async function getEventCertificates(
+  eventId: string,
+  callerId: string,
+  callerRole: string
+) {
+  const event = await requireEvent(eventId);
+  await assertCanManageEvent(event, callerId, callerRole, 'view certificates for this event');
+
   const result = await query(
     `SELECT c.id, c.verification_token, c.issued_at, c.certificate_type,
             u.id as user_id, u.username, p.full_name

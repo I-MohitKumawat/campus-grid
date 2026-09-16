@@ -59,6 +59,5 @@ export const POST = withAuth(
       console.error('[POST /events]', err);
       return errorResponse('Failed to create event.', 500);
     }
-  },
-  ['club_lead', 'faculty', 'admin']
+  }
 );

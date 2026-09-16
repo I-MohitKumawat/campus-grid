@@ -1,20 +1,34 @@
 /**
  * app/api/v1/clubs/route.ts
  *
- * GET  /api/v1/clubs         — List all approved clubs (public)
- * POST /api/v1/clubs/register — Submit a new club registration (any auth'd user)
+ * GET  /api/v1/clubs         — List all approved active clubs (public)
+ * GET  /api/v1/clubs?joined=true — List active clubs joined by the authenticated user
  */
 
 import type { NextRequest } from 'next/server';
-import { withAuth } from '@/lib/middleware/with-auth';
-import { ClubRegisterSchema } from '@/lib/schemas/club.schemas';
-import { listApprovedClubs, registerClub } from '@/lib/services/club.service';
+import { extractToken, verifyToken } from '@/lib/jwt';
+import { listApprovedClubs, getMyJoinedClubs } from '@/lib/services/club.service';
 import { successResponse, errorResponse } from '@/lib/response';
-import { AppError } from '@/lib/errors';
 
-// GET — public, no auth required
-export async function GET(_req: NextRequest) {
+export async function GET(req: NextRequest) {
   try {
+    const { searchParams } = new URL(req.url);
+    const joinedOnly = searchParams.get('joined') === 'true';
+
+    if (joinedOnly) {
+      const token = extractToken(req);
+      if (!token) {
+        return successResponse([]);
+      }
+      try {
+        const user = verifyToken(token);
+        const joinedClubs = await getMyJoinedClubs(user.sub);
+        return successResponse(joinedClubs);
+      } catch {
+        return successResponse([]);
+      }
+    }
+
     const clubs = await listApprovedClubs();
     return successResponse(clubs);
   } catch (err) {

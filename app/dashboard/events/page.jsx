@@ -20,10 +20,13 @@ import {
   Sparkles,
   ArrowRight,
   Calendar,
-  Users
+  Users,
+  Plus,
+  Edit3
 } from 'lucide-react';
 import DashboardNavbar from '@/components/layout/DashboardNavbar';
 import { useAuth } from '@/components/providers/AuthProvider';
+import { can } from '@/lib/permissions';
 
 export default function EventsPage() {
   const router = useRouter();
@@ -35,20 +38,25 @@ export default function EventsPage() {
 
   useEffect(() => {
     async function loadEvents() {
+      setLoading(true);
       try {
-        const eventsRes = await fetch('/api/v1/events', { cache: 'no-store' });
+        const endpoint = activeTab === 'past' ? '/api/v1/events/past' : '/api/v1/events';
+        const eventsRes = await fetch(endpoint, { cache: 'no-store' });
         const eventsData = await eventsRes.json().catch(() => null);
         if (eventsRes.ok && eventsData?.success && Array.isArray(eventsData.data)) {
           setEvents(eventsData.data);
+        } else {
+          setEvents([]);
         }
       } catch (err) {
         console.error('Failed to load events:', err);
+        setEvents([]);
       } finally {
         setLoading(false);
       }
     }
     loadEvents();
-  }, []);
+  }, [activeTab]);
 
   const filteredEvents = useMemo(() => {
     return events.filter(event => {
@@ -56,16 +64,19 @@ export default function EventsPage() {
       const descMatch = event.description?.toLowerCase().includes(searchQuery.toLowerCase());
       const venueMatch = event.venue?.toLowerCase().includes(searchQuery.toLowerCase());
       const categoryMatch = event.event_type?.toLowerCase().includes(searchQuery.toLowerCase());
+      const clubMatch = event.club_name?.toLowerCase().includes(searchQuery.toLowerCase());
 
-      const matchesSearch = !searchQuery || titleMatch || descMatch || venueMatch || categoryMatch;
+      const matchesSearch = !searchQuery || titleMatch || descMatch || venueMatch || categoryMatch || clubMatch;
       if (!matchesSearch) return false;
 
       const eventDate = new Date(event.event_date);
       const now = new Date();
+      const duration = Number(event.duration_minutes || 120);
+      const eventEndDate = new Date(eventDate.getTime() + duration * 60000);
 
       if (activeTab === 'upcoming') return eventDate >= now;
-      if (activeTab === 'ongoing') return false;
-      if (activeTab === 'past') return eventDate < now;
+      if (activeTab === 'ongoing') return now >= eventDate && now <= eventEndDate;
+      if (activeTab === 'past') return event.status === 'completed' || eventEndDate < now;
       return true;
     });
   }, [events, activeTab, searchQuery]);
@@ -86,9 +97,22 @@ export default function EventsPage() {
         {/* Page Title & Search Bar Row */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 border-b border-zinc-900 pb-6">
           <div>
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-violet-500/10 border border-violet-500/20 px-3 py-1 text-xs font-bold text-violet-400">
-              <Calendar className="h-3.5 w-3.5" /> Campus Events
-            </span>
+            <div className="flex items-center gap-3">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-violet-500/10 border border-violet-500/20 px-3 py-1 text-xs font-bold text-violet-400">
+                <Calendar className="h-3.5 w-3.5" /> Campus Events
+              </span>
+
+              {/* Contextual Privileged Control: Create Event */}
+              {can('event:create', user) && (
+                <Link
+                  href="/dashboard/event-studio/events/new"
+                  className="flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-accent hover:bg-accent/90 text-white text-xs font-bold transition-all shadow-md cursor-pointer"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  <span>Create Event</span>
+                </Link>
+              )}
+            </div>
             <h1 className="text-3xl font-extrabold tracking-tight mt-2 text-white">
               Explore & Attend Events
             </h1>
@@ -218,10 +242,10 @@ export default function EventsPage() {
             })}
           </div>
         ) : (
-          <div className="rounded-[28px] border border-zinc-900 bg-zinc-900/10 backdrop-blur-xl p-12 text-center">
-            <span className="text-3xl">📅</span>
-            <h3 className="text-base font-bold text-zinc-300 mt-3">No events found</h3>
-            <p className="text-xs text-zinc-550 mt-1.5">Try changing your filter tab or search query terms.</p>
+          <div className="rounded-[28px] border border-zinc-900 bg-zinc-900/10 backdrop-blur-xl p-12 text-center space-y-2">
+            <Calendar className="h-10 w-10 text-zinc-600 mx-auto mb-2" />
+            <h3 className="text-base font-bold text-zinc-300">No events found</h3>
+            <p className="text-xs text-zinc-500">There are no {activeTab === 'past' ? 'past' : activeTab === 'ongoing' ? 'ongoing' : 'upcoming'} events matching your search query.</p>
           </div>
         )}
 
